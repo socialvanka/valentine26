@@ -1,7 +1,7 @@
 // =====================
 // CONFIG
 // =====================
-const SERVER_URL = "https://kabo-server.onrender.com"; // <-- replace with your Render URL
+const SERVER_URL = "https://kabo-server.onrender.com"; // <-- replace
 
 // =====================
 // Socket
@@ -53,7 +53,7 @@ const unlockBtn = document.getElementById("unlockBtn");
 let currentRoomId = null;
 let state = null;
 
-// Private turn state
+// Private turn state (should NEVER be visible when not my turn)
 let myDrawnCard = null;
 let myDrawnIsPower = false;
 
@@ -65,6 +65,13 @@ let modal = null;
 const params = new URLSearchParams(location.search);
 const roomFromUrl = params.get("room");
 if (roomFromUrl) roomInput.value = roomFromUrl.toUpperCase();
+
+// =====================
+// Debug (leave ON while building)
+// =====================
+socket.onAny((event, ...args) => {
+  console.log("[socket]", event, args);
+});
 
 // =====================
 // Helpers
@@ -127,6 +134,30 @@ function flashPeek(text) {
   }, 950);
 
   setTimeout(() => el.remove(), 1250);
+}
+
+function clearDrawnUI() {
+  myDrawnCard = null;
+  myDrawnIsPower = false;
+  if (powerBar) powerBar.style.display = "none";
+  // don't wipe hints aggressively; just remove drawn-specific hint if you want:
+  // actionHint.textContent = "";
+}
+
+function setDrawnUI(card, power) {
+  ensurePowerUI();
+  myDrawnCard = card;
+  myDrawnIsPower = !!power;
+
+  actionHint.textContent = `You drew: ${formatCard(card)}. Tap one of your cards to swap OR discard OR use power.`;
+
+  const title = document.getElementById("drawnTitle");
+  title.textContent = power
+    ? `You drew ${formatCard(card)} — Power available. Choose: swap OR use power OR discard.`
+    : `You drew ${formatCard(card)} — Choose: swap OR discard.`;
+
+  document.getElementById("usePowerBtn").disabled = !power;
+  powerBar.style.display = "flex";
 }
 
 // =====================
@@ -266,9 +297,9 @@ function doPeek(i) {
 }
 
 function doTake(source) {
-  myDrawnCard = null;
-  myDrawnIsPower = false;
-  if (powerBar) powerBar.style.display = "none";
+  // Always clear local drawn state before taking a new card
+  clearDrawnUI();
+
   socket.emit("turn:take", { roomId: currentRoomId, source }, (res) => {
     if (!res?.ok) setStatus(res?.error || "Take failed");
   });
@@ -276,13 +307,19 @@ function doTake(source) {
 
 function doDiscardDrawn() {
   socket.emit("turn:discardDrawn", { roomId: currentRoomId }, (res) => {
-    if (!res?.ok) setStatus(res?.error || "Discard failed");
+    if (!res?.ok) return setStatus(res?.error || "Discard failed");
+    // IMPORTANT: clear right away on success
+    clearDrawnUI();
+    closeModal();
   });
 }
 
 function doSwap(i) {
   socket.emit("turn:swap", { roomId: currentRoomId, handIndex: i }, (res) => {
-    if (!res?.ok) setStatus(res?.error || "Swap failed");
+    if (!res?.ok) return setStatus(res?.error || "Swap failed");
+    // IMPORTANT: clear right away on success
+    clearDrawnUI();
+    closeModal();
   });
 }
 
@@ -290,8 +327,10 @@ function doCabo() {
   socket.emit("turn:cabo", { roomId: currentRoomId }, (res) => {
     if (!res?.ok) {
       actionHint.textContent = res?.error || "Cabo not allowed.";
-      setStatus(res?.error || "Cabo failed");
+      return setStatus(res?.error || "Cabo failed");
     }
+    clearDrawnUI();
+    closeModal();
   });
 }
 
@@ -317,7 +356,9 @@ function runPowerFlow() {
       btn.onclick = () => {
         const idx = parseInt(btn.getAttribute("data-i"), 10);
         socket.emit("power:peekOwn", { roomId: currentRoomId, handIndex: idx }, (res) => {
-          if (!res?.ok) setStatus(res?.error || "Power failed");
+          if (!res?.ok) return setStatus(res?.error || "Power failed");
+          // IMPORTANT
+          clearDrawnUI();
           closeModal();
         });
       };
@@ -340,7 +381,9 @@ function runPowerFlow() {
       btn.onclick = () => {
         const idx = parseInt(btn.getAttribute("data-i"), 10);
         socket.emit("power:peekOpp", { roomId: currentRoomId, oppIndex: idx }, (res) => {
-          if (!res?.ok) setStatus(res?.error || "Power failed");
+          if (!res?.ok) return setStatus(res?.error || "Power failed");
+          // IMPORTANT
+          clearDrawnUI();
           closeModal();
         });
       };
@@ -361,7 +404,9 @@ function runPowerFlow() {
     document.getElementById("cancel").onclick = closeModal;
     document.getElementById("doIt").onclick = () => {
       socket.emit("power:jackSkip", { roomId: currentRoomId }, (res) => {
-        if (!res?.ok) setStatus(res?.error || "Power failed");
+        if (!res?.ok) return setStatus(res?.error || "Power failed");
+        // IMPORTANT
+        clearDrawnUI();
         closeModal();
       });
     };
@@ -413,7 +458,9 @@ function runPowerFlow() {
 
     confirmBtn.onclick = () => {
       socket.emit("power:queenUnseenSwap", { roomId: currentRoomId, myIndex: myI, oppIndex: oppI }, (res) => {
-        if (!res?.ok) setStatus(res?.error || "Power failed");
+        if (!res?.ok) return setStatus(res?.error || "Power failed");
+        // IMPORTANT
+        clearDrawnUI();
         closeModal();
       });
     };
@@ -465,7 +512,7 @@ function runPowerFlow() {
 
     previewBtn.onclick = () => {
       socket.emit("power:kingPreview", { roomId: currentRoomId, myIndex: myI, oppIndex: oppI }, (res) => {
-        if (!res?.ok) setStatus(res?.error || "Power failed");
+        if (!res?.ok) return setStatus(res?.error || "Power failed");
       });
     };
     return;
@@ -475,7 +522,7 @@ function runPowerFlow() {
 }
 
 // =====================
-// Wire buttons
+// Buttons
 // =====================
 createBtn.addEventListener("click", () => {
   const name = (nameInput.value || "Player 1").trim();
@@ -518,7 +565,7 @@ discardBtn.addEventListener("click", () => doTake("discard"));
 discardDrawnBtn.addEventListener("click", doDiscardDrawn);
 caboBtn.addEventListener("click", doCabo);
 
-unlockBtn.addEventListener("click", () => {
+unlockBtn?.addEventListener("click", () => {
   gameScreen.style.display = "none";
   valScreen.style.display = "block";
 });
@@ -534,6 +581,9 @@ socket.on("room:update", (s) => {
   setBoardVisible(s.started);
   renderLog(s.log || []);
 
+  // Debug snapshot
+  console.log("STATE", { phase: s.phase, turn: s.turnSocketId, me: socket.id, drawCount: s.drawCount, discardTop: s.discardTop });
+
   const my = me();
   const opp = opponent();
 
@@ -546,31 +596,37 @@ socket.on("room:update", (s) => {
 
   startBtn.style.display = (!s.started && s.players[0]?.socketId === socket.id && s.players.length === 2) ? "inline-block" : "none";
 
+  const myTurn = isMyTurn();
+
+  // CRITICAL: if it's not my turn, I must not keep any drawn-card UI
+  if (!myTurn) {
+    clearDrawnUI();
+    closeModal();
+  }
+
   if (s.phase === "PEEK") {
     peekHint.textContent = my ? `Peek remaining: ${my.peeksLeft}. Tap your cards (flash only).` : "";
     turnHint.textContent = "Opponent is peeking too.";
     actionHint.textContent = "";
+    clearDrawnUI();
   } else if (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN") {
     peekHint.textContent = "";
-    turnHint.textContent = isMyTurn()
+    turnHint.textContent = myTurn
       ? "Your turn: Draw / Take Discard, or call CABO (≤ 5)."
       : "Opponent's turn.";
-    actionHint.textContent = isMyTurn()
+    actionHint.textContent = myTurn
       ? "CABO is only allowed if your total is ≤ 5 (K♥/K♦ count as -1)."
       : "";
-
-    // Reset drawn state at start of draw phase
-    myDrawnCard = null;
-    myDrawnIsPower = false;
-    if (powerBar) powerBar.style.display = "none";
+    clearDrawnUI();
   } else if (s.phase === "TURN_DECIDE") {
-    turnHint.textContent = isMyTurn()
+    turnHint.textContent = myTurn
       ? "Decide: swap the drawn card (tap your card), or discard, or use power."
       : "Opponent deciding.";
   } else if (s.phase === "ENDED") {
     turnHint.textContent = "Round ended (all cards revealed).";
     actionHint.textContent = "";
     endRow.style.display = "flex";
+    clearDrawnUI();
     const ended = s.ended;
     if (ended) {
       const lines = ended.scores.map(x => `${x.name}: ${x.score}`).join(" | ");
@@ -578,7 +634,7 @@ socket.on("room:update", (s) => {
     }
   }
 
-  const myTurn = isMyTurn();
+  // Enable/disable controls
   drawBtn.disabled = !(myTurn && (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN"));
   discardBtn.disabled = !(myTurn && (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN") && !!s.discardTop);
 
@@ -595,21 +651,12 @@ socket.on("peek:result", ({ index, card }) => {
 
 // Draw result (private): show card + enable power UI
 socket.on("turn:drawResult", ({ card, power }) => {
-  ensurePowerUI();
-  myDrawnCard = card;
-  myDrawnIsPower = !!power;
+  // This event should only come to the current player.
+  // Extra safety: if server says it's not my turn (race), ignore.
+  if (!isMyTurn()) return;
 
-  actionHint.textContent = `You drew: ${formatCard(card)}. Tap one of your cards to swap OR discard OR use power.`;
-
-  const title = document.getElementById("drawnTitle");
-  title.textContent = power
-    ? `You drew ${formatCard(card)} — Power available. Choose: swap OR use power OR discard.`
-    : `You drew ${formatCard(card)} — Choose: swap OR discard.`;
-
-  document.getElementById("usePowerBtn").disabled = !power;
-  powerBar.style.display = "flex";
-
-  renderHands(); // to enable swap-click affordance
+  setDrawnUI(card, power);
+  renderHands(); // enables swapping by clicking your card
 });
 
 // Power reveals flash only (memory)
@@ -632,14 +679,16 @@ socket.on("king:preview", ({ myIndex, oppIndex, myCard, oppCard }) => {
 
   document.getElementById("kYes").onclick = () => {
     socket.emit("power:kingConfirm", { roomId: currentRoomId, confirm: true }, (res) => {
-      if (!res?.ok) setStatus(res?.error || "King confirm failed");
+      if (!res?.ok) return setStatus(res?.error || "King confirm failed");
+      clearDrawnUI();
       closeModal();
     });
   };
 
   document.getElementById("kNo").onclick = () => {
     socket.emit("power:kingConfirm", { roomId: currentRoomId, confirm: false }, (res) => {
-      if (!res?.ok) setStatus(res?.error || "King cancel failed");
+      if (!res?.ok) return setStatus(res?.error || "King cancel failed");
+      clearDrawnUI();
       closeModal();
     });
   };
