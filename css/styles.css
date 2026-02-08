@@ -1,0 +1,153 @@
+:root{
+  --lav1:#b9a0ff;
+  --lav2:#efe9ff;
+  --ink:#1f1f27;
+  --radius:22px;
+}
+
+body{
+  margin:0;
+  min-height:100vh;
+  display:grid;
+  place-items:center;
+  font-family:'Inter', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color:var(--ink);
+  overflow:hidden;
+
+  background:
+    radial-gradient(900px 500px at 15% 10%, rgba(239,233,255,.95), transparent 70%),
+    radial-gradient(700px 420px at 90% 20%, rgba(255,214,231,.55), transparent 60%),
+    linear-gradient(135deg, #b7a3ff, #f5e8ff 55%, #ffffff);
+}
+
+/* Background layer placeholder (keep your flower code if you want) */
+.bg{ position:fixed; inset:0; pointer-events:none; z-index:0; }
+
+.wrap{ width:min(920px, 92vw); position:relative; z-index:2; }
+.card{
+  background: rgba(255,255,255,0.72);
+  border: 1px solid rgba(124,77,255,0.18);
+  box-shadow: 0 18px 60px rgba(22, 18, 40, 0.18), 0 1px 0 rgba(255,255,255,0.6) inset;
+  border-radius: var(--radius);
+  padding: 26px 22px;
+  backdrop-filter: blur(10px);
+  text-align:center;
+}
+
+h1{
+  font-family:'Playfair Display', serif;
+  font-size: clamp(24px, 4vw, 34px);
+  font-weight: 500;
+  margin: 6px 0 10px;
+}
+
+.sub{ opacity:.86; min-height: 22px; margin: 0 0 14px; }
+.row{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin: 10px 0; }
+
+.input{
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 12px;
+  padding: 12px 12px;
+  min-width: 190px;
+  background: rgba(255,255,255,.8);
+  outline: none;
+}
+
+button{
+  border:0;
+  padding: 12px 16px;
+  border-radius: 14px;
+  cursor:pointer;
+  background: rgba(255,255,255,.88);
+  box-shadow: 0 10px 22px rgba(0,0,0,.10);
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+button:hover{ transform: translateY(-1px); box-shadow: 0 14px 30px rgba(0,0,0,.12); }
+
+.primary{
+  background: linear-gradient(135deg, #7c4dff, #b196ff);
+  color: white;
+}
+.danger{
+  background: linear-gradient(135deg, #ff4d6d, #ff7f96);
+  color: white;
+}
+.pill{
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.65);
+  border: 1px solid rgba(0,0,0,.06);
+}
+
+/* Game board */
+.gameBoard{ margin-top: 14px; text-align:left; }
+.cols{ display:grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 800px){ .cols{ grid-template-columns: 1fr; } }
+.panel{
+  background: rgba(255,255,255,.55);
+  border: 1px solid rgba(0,0,0,.06);
+  border-radius: 18px;
+  padding: 14px;
+}
+.panelTitle{ font-weight: 600; margin-bottom: 10px; }
+.grid{ display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cardCell{
+  height: 74px;
+  border-radius: 16px;
+  background: rgba(255,255,255,.7);
+  border: 1px solid rgba(0,0,0,.06);
+  display:grid;
+  place-items:center;
+  font-weight: 700;
+  user-select:none;
+  position: relative;
+}
+.cardCell .mini{ font-weight: 600; opacity:.75; font-size: 12px; }
+.cardCell.clickable{ outline: 2px solid rgba(124,77,255,.25); cursor:pointer; }
+
+.hint{ font-size: 13px; opacity:.82; margin-top: 10px; min-height: 18px; }
+
+.mid{
+  display:grid;
+  grid-template-columns: 1fr 1fr 2fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+@media (max-width: 800px){ .mid{ grid-template-columns: 1fr; } }
+
+.stack{
+  background: rgba(255,255,255,.55);
+  border: 1px solid rgba(0,0,0,.06);
+  border-radius: 18px;
+  padding: 14px;
+}
+.stack.wide{ grid-column: span 1; }
+.stackTitle{ font-weight: 600; margin-bottom: 10px; }
+.stackBtn{ width: 100%; }
+.stackMeta{ font-size: 13px; opacity:.8; margin-top: 8px; min-height: 16px; }
+.actionRow{ display:flex; gap:10px; flex-wrap:wrap; }
+
+.log{
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255,255,255,.55);
+  border: 1px solid rgba(0,0,0,.06);
+  font-size: 13px;
+  min-height: 56px;
+}
+.log div{ opacity:.9; margin: 4px 0; }
+
+/* Valentine bits (keep simple for now; you can paste your existing fancy valentine CSS here) */
+.btns{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+.reveal{ display:none; margin-top:18px; }
+.reveal.show{ display:block; }
+.carousel{ margin:14px auto 10px; width:min(480px,88vw); border-radius:18px; overflow:hidden; }
+.track{ display:flex; transition: transform .35s ease; }
+.slide{ min-width:100%; aspect-ratio:4/3; }
+.slide img{ width:100%; height:100%; object-fit:cover; display:block; }
+.dots{ display:flex; justify-content:center; gap:8px; margin-top:10px; }
+.dot{ width:8px;height:8px;border-radius:999px;background:rgba(0,0,0,.25); cursor:pointer; }
+.dot.active{ background:rgba(0,0,0,.65); }
+.audioCtl{ display:none; align-items:center; justify-content:center; gap:10px; margin: 12px auto 0; padding: 10px 12px; border-radius: 14px; background: rgba(255,255,255,.65); width: fit-content; }
+.micdrop{ font-family:'Lobster', cursive; font-size:22px; margin-top:16px; }
