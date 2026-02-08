@@ -1,20 +1,7 @@
 // =====================
 // CONFIG
 // =====================
-const SERVER_URL = "https://kabo-server.onrender.com"; // <-- change to your Render/Railway URL later
-
-const photos = [
-  "assets/photos/photo1.jpeg",
-  "assets/photos/photo2.jpeg",
-  "assets/photos/photo3.jpeg",
-];
-const audioFile = "assets/audio/orangrez.mp3";
-
-const copy = {
-  yesLine: "I was hoping you’d say that.",
-  afterYes: "Now come here… I have something for you 💜",
-  micdrop: "So yes… it’s you. Always was."
-};
+const SERVER_URL = "https://YOUR-RENDER-URL.onrender.com"; // <-- replace
 
 // =====================
 // Socket
@@ -60,11 +47,17 @@ const logEl = document.getElementById("log");
 const endRow = document.getElementById("endRow");
 const unlockBtn = document.getElementById("unlockBtn");
 
+// Power UI (we will create it dynamically if not present)
+let powerBar = null;
+let modal = null;
+
 let currentRoomId = null;
 let state = null;
 
-// keep private peeked card reveals for self
+// private memory
 const myKnown = [null, null, null, null];
+let myDrawnCard = null;     // private drawn card
+let myDrawnIsPower = false;
 
 // query param auto-join
 const params = new URLSearchParams(location.search);
@@ -72,7 +65,7 @@ const roomFromUrl = params.get("room");
 if (roomFromUrl) roomInput.value = roomFromUrl.toUpperCase();
 
 // =====================
-// DOM - Valentine
+// DOM - Valentine (unchanged minimal)
 // =====================
 const subtitle = document.getElementById("subtitle");
 const yesBtn = document.getElementById("yesBtn");
@@ -81,33 +74,15 @@ const reveal = document.getElementById("reveal");
 const sweetLine = document.getElementById("sweetLine");
 const micdrop = document.getElementById("micdrop");
 
-const carousel = document.getElementById("carousel");
-const track = document.getElementById("track");
-const dots = document.getElementById("dots");
-
-const audio = document.getElementById("bgAudio");
-const audioCtl = document.getElementById("audioCtl");
-const audioBtn = document.getElementById("audioBtn");
-const audioStatus = document.getElementById("audioStatus");
-
-audio.src = audioFile;
-
-let index = 0;
-let autoTimer = null;
-
 // =====================
 // Helpers
 // =====================
 function setStatus(s) { gameStatus.textContent = s; }
-function me() {
-  return state?.players?.find(p => p.isMe);
-}
-function opponent() {
-  return state?.players?.find(p => !p.isMe);
-}
-function isMyTurn() {
-  return state?.turnSocketId === socket.id;
-}
+
+function me() { return state?.players?.find(p => p.isMe); }
+function opponent() { return state?.players?.find(p => !p.isMe); }
+
+function isMyTurn() { return state?.turnSocketId === socket.id; }
 
 function renderLog(lines) {
   logEl.innerHTML = "";
@@ -127,13 +102,97 @@ function setBoardVisible(v) {
   board.style.display = v ? "block" : "none";
 }
 
-function cellLabel(card, known) {
-  if (!card && !known) return "🂠";
-  if (known) return `${known.r}${known.s} (${known.v})`;
-  // ended state: server provides revealed hand objects
-  return `${card.r}${card.s} (${card.v})`;
+function formatCard(c) {
+  if (!c) return "—";
+  const suitSym = ({S:"♠",H:"♥",D:"♦",C:"♣"})[c.s] ?? c.s;
+  return `${c.r}${suitSym} (base ${c.base})`;
 }
 
+function ensurePowerUI() {
+  if (powerBar) return;
+
+  powerBar = document.createElement("div");
+  powerBar.style.marginTop = "10px";
+  powerBar.style.display = "none";
+  powerBar.style.gap = "10px";
+  powerBar.style.justifyContent = "center";
+  powerBar.style.flexWrap = "wrap";
+  powerBar.style.display = "flex";
+
+  const title = document.createElement("div");
+  title.style.fontSize = "13px";
+  title.style.opacity = "0.85";
+  title.style.width = "100%";
+  title.style.textAlign = "center";
+  title.id = "drawnTitle";
+  powerBar.appendChild(title);
+
+  const useBtn = document.createElement("button");
+  useBtn.id = "usePowerBtn";
+  useBtn.textContent = "Use Power";
+  powerBar.appendChild(useBtn);
+
+  const keepBtn = document.createElement("button");
+  keepBtn.id = "keepSwapHintBtn";
+  keepBtn.textContent = "Swap by tapping your card";
+  keepBtn.disabled = true;
+  powerBar.appendChild(keepBtn);
+
+  const discardBtn2 = document.createElement("button");
+  discardBtn2.id = "discardPowerBtn";
+  discardBtn2.textContent = "Discard drawn";
+  powerBar.appendChild(discardBtn2);
+
+  // insert below actionHint
+  actionHint.parentElement.appendChild(powerBar);
+
+  // modal
+  modal = document.createElement("div");
+  modal.style.position = "fixed";
+  modal.style.inset = "0";
+  modal.style.display = "none";
+  modal.style.placeItems = "center";
+  modal.style.background = "rgba(0,0,0,.25)";
+  modal.style.zIndex = "9999";
+
+  const box = document.createElement("div");
+  box.style.width = "min(520px, 92vw)";
+  box.style.borderRadius = "18px";
+  box.style.padding = "16px";
+  box.style.background = "rgba(255,255,255,.92)";
+  box.style.boxShadow = "0 18px 60px rgba(0,0,0,.18)";
+  box.style.textAlign = "center";
+  box.id = "modalBox";
+
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+
+  // wire
+  useBtn.addEventListener("click", () => runPowerFlow());
+  discardBtn2.addEventListener("click", () => doDiscardDrawn());
+}
+
+function showModal(html) {
+  ensurePowerUI();
+  const box = document.getElementById("modalBox");
+  box.innerHTML = html;
+  modal.style.display = "grid";
+}
+
+function closeModal() {
+  if (!modal) return;
+  modal.style.display = "none";
+}
+
+function myHandSumEstimate() {
+  // We only know peeks + maybe not all; but CABO eligibility is server-side.
+  // We'll show a hint based on known cards only (optional), but the server enforces.
+  return null;
+}
+
+// =====================
+// Rendering hands
+// =====================
 function renderHands() {
   myGrid.innerHTML = "";
   oppGrid.innerHTML = "";
@@ -142,25 +201,28 @@ function renderHands() {
   const opp = opponent();
   if (!my || !opp) return;
 
-  // Determine what to display:
-  // - During ENDED: state.players[].hand is revealed
-  // - During game: state players hand = nulls; we show 🂠 except known peeks for self
+  // My grid
   for (let i = 0; i < 4; i++) {
-    const c = state.phase === "ENDED" ? my.hand[i] : null;
+    const endedCard = state.phase === "ENDED" ? my.hand[i] : null;
     const known = myKnown[i];
+
     const div = document.createElement("div");
     div.className = "cardCell";
-    div.innerHTML = `<div>${cellLabel(c, known)}</div><div class="mini">#${i+1}</div>`;
 
-    // click behaviors:
-    // peek phase: click to peek
+    const label = state.phase === "ENDED"
+      ? `${endedCard.r}${endedCard.s} (score ${endedCard.score})`
+      : (known ? `${known.r}${known.s} (score ${known.score})` : "🂠");
+
+    div.innerHTML = `<div>${label}</div><div class="mini">#${i+1}</div>`;
+
+    // Peek phase: click to peek
     if (state.phase === "PEEK" && my.peeksLeft > 0) {
       div.classList.add("clickable");
       div.addEventListener("click", () => doPeek(i));
     }
 
-    // swap phase: click to swap
-    if (state.phase === "TURN_DECIDE" && isMyTurn()) {
+    // Swap phase: click to swap (Option B)
+    if (state.phase === "TURN_DECIDE" && isMyTurn() && myDrawnCard) {
       div.classList.add("clickable");
       div.addEventListener("click", () => doSwap(i));
     }
@@ -168,19 +230,24 @@ function renderHands() {
     myGrid.appendChild(div);
   }
 
+  // Opponent grid
   for (let i = 0; i < 4; i++) {
-    const c = state.phase === "ENDED" ? opp.hand[i] : null;
+    const endedCard = state.phase === "ENDED" ? opp.hand[i] : null;
+
     const div = document.createElement("div");
     div.className = "cardCell";
-    div.innerHTML = `<div>${state.phase === "ENDED" ? cellLabel(c, null) : "🂠"}</div><div class="mini">#${i+1}</div>`;
+    const label = state.phase === "ENDED"
+      ? `${endedCard.r}${endedCard.s} (score ${endedCard.score})`
+      : "🂠";
+    div.innerHTML = `<div>${label}</div><div class="mini">#${i+1}</div>`;
     oppGrid.appendChild(div);
   }
 
-  oppTitle.textContent = opp ? `Opponent: ${opp.name}` : "Opponent";
+  oppTitle.textContent = `Opponent: ${opp.name}`;
 }
 
 // =====================
-// Actions (emit to server)
+// Actions to server
 // =====================
 function doPeek(i) {
   socket.emit("game:peek", { roomId: currentRoomId, index: i }, (res) => {
@@ -189,13 +256,13 @@ function doPeek(i) {
 }
 
 function doTake(source) {
+  // reset private drawn info
+  myDrawnCard = null;
+  myDrawnIsPower = false;
+  if (powerBar) powerBar.style.display = "none";
+
   socket.emit("turn:take", { roomId: currentRoomId, source }, (res) => {
     if (!res?.ok) setStatus(res?.error || "Take failed");
-    else if (source === "discard" && res.card) {
-      actionHint.textContent = `You took: ${res.card.r}${res.card.s} (${res.card.v}). Now swap or discard.`;
-    } else {
-      actionHint.textContent = `You drew a mystery card. Swap or discard.`;
-    }
   });
 }
 
@@ -213,8 +280,192 @@ function doSwap(i) {
 
 function doCabo() {
   socket.emit("turn:cabo", { roomId: currentRoomId }, (res) => {
-    if (!res?.ok) setStatus(res?.error || "Cabo failed");
+    if (!res?.ok) {
+      setStatus(res?.error || "Cabo failed");
+      actionHint.textContent = res?.error || "";
+    }
   });
+}
+
+// =====================
+// Power flow (Option B)
+// =====================
+function runPowerFlow() {
+  if (!myDrawnCard) return;
+  const r = myDrawnCard.r;
+
+  // 7/8 peek own
+  if (r === "7" || r === "8") {
+    showModal(`
+      <div style="font-weight:700;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Peek one of YOUR cards</div>
+      <div style="opacity:.85;margin-bottom:10px;">Choose a position:</div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        ${[0,1,2,3].map(i => `<button data-i="${i}">Peek #${i+1}</button>`).join("")}
+      </div>
+      <div style="margin-top:12px;"><button id="closeM">Cancel</button></div>
+    `);
+    document.getElementById("closeM").onclick = closeModal;
+    [...document.querySelectorAll("[data-i]")].forEach(btn => {
+      btn.onclick = () => {
+        const idx = parseInt(btn.getAttribute("data-i"), 10);
+        socket.emit("power:peekOwn", { roomId: currentRoomId, handIndex: idx }, (res) => {
+          if (!res?.ok) setStatus(res?.error || "Power failed");
+          closeModal();
+        });
+      };
+    });
+    return;
+  }
+
+  // 9/10 peek opponent
+  if (r === "9" || r === "10") {
+    showModal(`
+      <div style="font-weight:700;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Peek one OPPONENT card</div>
+      <div style="opacity:.85;margin-bottom:10px;">Choose opponent position:</div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        ${[0,1,2,3].map(i => `<button data-i="${i}">Peek Opp #${i+1}</button>`).join("")}
+      </div>
+      <div style="margin-top:12px;"><button id="closeM">Cancel</button></div>
+    `);
+    document.getElementById("closeM").onclick = closeModal;
+    [...document.querySelectorAll("[data-i]")].forEach(btn => {
+      btn.onclick = () => {
+        const idx = parseInt(btn.getAttribute("data-i"), 10);
+        socket.emit("power:peekOpp", { roomId: currentRoomId, oppIndex: idx }, (res) => {
+          if (!res?.ok) setStatus(res?.error || "Power failed");
+          closeModal();
+        });
+      };
+    });
+    return;
+  }
+
+  // Jack skip
+  if (r === "J") {
+    showModal(`
+      <div style="font-weight:700;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Skip opponent's next turn</div>
+      <div style="opacity:.85;margin-bottom:12px;">(2 players: it comes back to you)</div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        <button id="doIt">Use Jack</button>
+        <button id="cancel">Cancel</button>
+      </div>
+    `);
+    document.getElementById("cancel").onclick = closeModal;
+    document.getElementById("doIt").onclick = () => {
+      socket.emit("power:jackSkip", { roomId: currentRoomId }, (res) => {
+        if (!res?.ok) setStatus(res?.error || "Power failed");
+        closeModal();
+      });
+    };
+    return;
+  }
+
+  // Queen unseen swap
+  if (r === "Q") {
+    showModal(`
+      <div style="font-weight:700;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Unseen swap</div>
+      <div style="opacity:.85;margin-bottom:10px;">Pick YOUR card and OPPONENT card (no reveals):</div>
+      <div style="display:grid;gap:12px;justify-content:center;">
+        <div>
+          <div style="opacity:.8;margin-bottom:6px;">Your card:</div>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+            ${[0,1,2,3].map(i => `<button class="myPick" data-i="${i}">#${i+1}</button>`).join("")}
+          </div>
+        </div>
+        <div>
+          <div style="opacity:.8;margin-bottom:6px;">Opponent card:</div>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+            ${[0,1,2,3].map(i => `<button class="oppPick" data-i="${i}">#${i+1}</button>`).join("")}
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          <button id="confirmQ" disabled>Swap</button>
+          <button id="cancelQ">Cancel</button>
+        </div>
+      </div>
+    `);
+
+    let myI = null, oppI = null;
+    const confirmBtn = document.getElementById("confirmQ");
+    const cancelBtn = document.getElementById("cancelQ");
+    cancelBtn.onclick = closeModal;
+
+    document.querySelectorAll(".myPick").forEach(b => b.onclick = () => {
+      myI = parseInt(b.getAttribute("data-i"), 10);
+      b.style.outline = "2px solid rgba(124,77,255,.4)";
+      document.querySelectorAll(".myPick").forEach(x => { if (x !== b) x.style.outline = "none"; });
+      confirmBtn.disabled = !(myI !== null && oppI !== null);
+    });
+
+    document.querySelectorAll(".oppPick").forEach(b => b.onclick = () => {
+      oppI = parseInt(b.getAttribute("data-i"), 10);
+      b.style.outline = "2px solid rgba(255,77,109,.35)";
+      document.querySelectorAll(".oppPick").forEach(x => { if (x !== b) x.style.outline = "none"; });
+      confirmBtn.disabled = !(myI !== null && oppI !== null);
+    });
+
+    confirmBtn.onclick = () => {
+      socket.emit("power:queenUnseenSwap", { roomId: currentRoomId, myIndex: myI, oppIndex: oppI }, (res) => {
+        if (!res?.ok) setStatus(res?.error || "Power failed");
+        closeModal();
+      });
+    };
+    return;
+  }
+
+  // King seen swap (K1): preview both, then confirm
+  if (r === "K") {
+    showModal(`
+      <div style="font-weight:700;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Seen swap (preview both)</div>
+      <div style="opacity:.85;margin-bottom:10px;">Pick YOUR card and OPPONENT card to preview:</div>
+      <div style="display:grid;gap:12px;justify-content:center;">
+        <div>
+          <div style="opacity:.8;margin-bottom:6px;">Your card:</div>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+            ${[0,1,2,3].map(i => `<button class="myPick" data-i="${i}">#${i+1}</button>`).join("")}
+          </div>
+        </div>
+        <div>
+          <div style="opacity:.8;margin-bottom:6px;">Opponent card:</div>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+            ${[0,1,2,3].map(i => `<button class="oppPick" data-i="${i}">#${i+1}</button>`).join("")}
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          <button id="previewK" disabled>Preview</button>
+          <button id="cancelK">Cancel</button>
+        </div>
+      </div>
+    `);
+
+    let myI = null, oppI = null;
+    const previewBtn = document.getElementById("previewK");
+    const cancelBtn = document.getElementById("cancelK");
+    cancelBtn.onclick = closeModal;
+
+    document.querySelectorAll(".myPick").forEach(b => b.onclick = () => {
+      myI = parseInt(b.getAttribute("data-i"), 10);
+      b.style.outline = "2px solid rgba(124,77,255,.4)";
+      document.querySelectorAll(".myPick").forEach(x => { if (x !== b) x.style.outline = "none"; });
+      previewBtn.disabled = !(myI !== null && oppI !== null);
+    });
+
+    document.querySelectorAll(".oppPick").forEach(b => b.onclick = () => {
+      oppI = parseInt(b.getAttribute("data-i"), 10);
+      b.style.outline = "2px solid rgba(255,77,109,.35)";
+      document.querySelectorAll(".oppPick").forEach(x => { if (x !== b) x.style.outline = "none"; });
+      previewBtn.disabled = !(myI !== null && oppI !== null);
+    });
+
+    previewBtn.onclick = () => {
+      socket.emit("power:kingPreview", { roomId: currentRoomId, myIndex: myI, oppIndex: oppI }, (res) => {
+        if (!res?.ok) setStatus(res?.error || "Power failed");
+      });
+    };
+    return;
+  }
+
+  setStatus("No power available for this card.");
 }
 
 // =====================
@@ -273,47 +524,39 @@ socket.on("room:update", (s) => {
   state = s;
   if (!currentRoomId) currentRoomId = s.id;
 
-  roomRow.style.display = "flex";
-  roomCodeEl.textContent = s.id;
+  showRoomUI(s.id);
 
-  // board visible when game started
   setBoardVisible(s.started);
-
   renderLog(s.log || []);
 
   const my = me();
   const opp = opponent();
 
-  if (!opp) {
-    setStatus("Waiting for your partner to join…");
-  } else if (!s.started) {
-    setStatus("Both players in. Host can start.");
-  } else {
-    setStatus(s.phase === "PEEK" ? "Peek phase" : "Game in progress");
-  }
+  if (!opp) setStatus("Waiting for your partner to join…");
+  else if (!s.started) setStatus("Both players in. Host can start.");
+  else setStatus(s.phase === "PEEK" ? "Peek phase" : "Game in progress");
 
-  // update meta
   drawMeta.textContent = `Cards left: ${s.drawCount}`;
-  discardMeta.textContent = s.discardTop ? `Top: ${s.discardTop.r}${s.discardTop.s}` : `Empty`;
+  discardMeta.textContent = s.discardTop ? `Top: ${formatCard(s.discardTop)}` : `Empty`;
 
-  // hints & button enablement
-  if (!s.started) {
-    startBtn.style.display = (s.players[0]?.socketId === socket.id && s.players.length === 2) ? "inline-block" : "none";
-  } else {
-    startBtn.style.display = "none";
-  }
+  // host start button only when 2 players + not started
+  startBtn.style.display = (!s.started && s.players[0]?.socketId === socket.id && s.players.length === 2) ? "inline-block" : "none";
 
+  // Phase hints
   if (s.phase === "PEEK") {
     peekHint.textContent = my ? `Peek remaining: ${my.peeksLeft}. Tap your cards.` : "";
     turnHint.textContent = "Opponent is peeking too.";
     actionHint.textContent = "";
   } else if (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN") {
     peekHint.textContent = "";
-    turnHint.textContent = isMyTurn() ? "Your turn: take Draw or Discard." : "Opponent's turn.";
-    actionHint.textContent = "";
+    turnHint.textContent = isMyTurn() ? "Your turn: Draw / Take Discard, or call CABO (≤ 5)." : "Opponent's turn.";
+    actionHint.textContent = isMyTurn() ? "If your total is ≤ 5 (K♥/K♦ count as -1), you can call CABO now." : "";
+    // clear local drawn card when returning to draw phase
+    myDrawnCard = null;
+    myDrawnIsPower = false;
+    if (powerBar) powerBar.style.display = "none";
   } else if (s.phase === "TURN_DECIDE") {
-    turnHint.textContent = isMyTurn() ? "Choose: swap by tapping a card, or discard drawn." : "Opponent deciding.";
-    actionHint.textContent ||= "Tap one of your 4 cards to swap.";
+    turnHint.textContent = isMyTurn() ? "You drew a card. Swap it into hand OR use its power OR discard it." : "Opponent deciding.";
   } else if (s.phase === "ENDED") {
     turnHint.textContent = "Round ended.";
     actionHint.textContent = "";
@@ -327,79 +570,76 @@ socket.on("room:update", (s) => {
 
   // enable/disable controls
   const myTurn = isMyTurn();
+
   drawBtn.disabled = !(myTurn && (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN"));
   discardBtn.disabled = !(myTurn && (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN") && !!s.discardTop);
-  discardDrawnBtn.disabled = !(myTurn && s.phase === "TURN_DECIDE");
-  caboBtn.disabled = !(myTurn && (s.phase === "TURN_DRAW" || s.phase === "TURN_DECIDE"));
+
+  discardDrawnBtn.disabled = !(myTurn && s.phase === "TURN_DECIDE" && !!myDrawnCard);
+  caboBtn.disabled = !(myTurn && s.phase === "TURN_DRAW");
 
   renderHands();
 });
 
 socket.on("peek:result", ({ index, card, peeksLeft }) => {
   myKnown[index] = card;
-  const my = me();
-  if (my) my.peeksLeft = peeksLeft;
+  const m = me();
+  if (m) m.peeksLeft = peeksLeft;
   renderHands();
 });
 
-// =====================
-// Valentine screen logic (simple)
-// =====================
-function buildCarousel(){
-  track.innerHTML = "";
-  dots.innerHTML = "";
-  photos.forEach((src, i) => {
-    const slide = document.createElement("div");
-    slide.className = "slide";
-    const img = document.createElement("img");
-    img.src = src;
-    slide.appendChild(img);
-    track.appendChild(slide);
+// server reveals your drawn card (private)
+socket.on("turn:drawResult", ({ card, power }) => {
+  ensurePowerUI();
+  myDrawnCard = card;
+  myDrawnIsPower = !!power;
 
-    const dot = document.createElement("div");
-    dot.className = "dot" + (i===0 ? " active" : "");
-    dot.addEventListener("click", () => goTo(i));
-    dots.appendChild(dot);
-  });
-}
-function goTo(i){
-  index = (i + photos.length) % photos.length;
-  track.style.transform = `translateX(-${index * 100}%)`;
-  [...dots.children].forEach((d,k)=>d.classList.toggle("active", k===index));
-}
-function startAutoCarousel(){
-  stopAutoCarousel();
-  autoTimer = setInterval(()=>goTo(index+1), 2600);
-}
-function stopAutoCarousel(){
-  if (autoTimer) clearInterval(autoTimer);
-  autoTimer = null;
-}
+  actionHint.textContent = `You drew: ${formatCard(card)}. Now swap (tap your card), discard, or use power (if applicable).`;
 
-async function tryPlayAudio(){
-  try{
-    audio.volume = 0.5;
-    await audio.play();
-    audioCtl.style.display = "none";
-  } catch {
-    audioCtl.style.display = "inline-flex";
-    audioStatus.textContent = "Tap to play our song 💜";
+  const title = document.getElementById("drawnTitle");
+  title.textContent = power
+    ? `You drew ${formatCard(card)} — it has a power. Choose: swap OR use power OR discard.`
+    : `You drew ${formatCard(card)} — choose: swap OR discard.`;
+
+  const useBtn = document.getElementById("usePowerBtn");
+  useBtn.disabled = !power;
+
+  powerBar.style.display = "flex";
+});
+
+// power reveals (peek results)
+socket.on("power:reveal", ({ kind, index, card }) => {
+  if (kind === "own") {
+    myKnown[index] = card;
+    actionHint.textContent = `Peeked your #${index+1}: ${formatCard(card)} (score ${card.score})`;
+  } else {
+    actionHint.textContent = `Peeked opponent #${index+1}: ${formatCard(card)} (score ${card.score})`;
   }
-}
-audioBtn.addEventListener("click", tryPlayAudio);
+  renderHands();
+});
 
-yesBtn.addEventListener("click", async () => {
-  subtitle.textContent = copy.yesLine;
-  btnRow.style.opacity = "0";
-  btnRow.style.pointerEvents = "none";
+// King preview step
+socket.on("king:preview", ({ myIndex, oppIndex, myCard, oppCard }) => {
+  showModal(`
+    <div style="font-weight:800;margin-bottom:10px;">King Preview (K1)</div>
+    <div style="opacity:.9;margin-bottom:10px;">Your #${myIndex+1}: <b>${formatCard(myCard)}</b> (score ${myCard.score})</div>
+    <div style="opacity:.9;margin-bottom:14px;">Opponent #${oppIndex+1}: <b>${formatCard(oppCard)}</b> (score ${oppCard.score})</div>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+      <button id="kYes">Confirm Swap</button>
+      <button id="kNo">Cancel</button>
+    </div>
+  `);
 
-  reveal.classList.add("show");
-  sweetLine.textContent = copy.afterYes;
-  micdrop.textContent = copy.micdrop;
+  document.getElementById("kYes").onclick = () => {
+    socket.emit("power:kingConfirm", { roomId: currentRoomId, confirm: true }, (res) => {
+      if (!res?.ok) setStatus(res?.error || "King confirm failed");
+      closeModal();
+    });
+  };
 
-  buildCarousel();
-  goTo(0);
-  startAutoCarousel();
-
-  await tryPlayAudio();
+  document.getElementById("kNo").onclick = () => {
+    socket.emit("power:kingConfirm", { roomId: currentRoomId, confirm: false }, (res) => {
+      if (!res?.ok) setStatus(res?.error || "King cancel failed");
+      closeModal();
+    });
+  };
 });
