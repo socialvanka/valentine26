@@ -1,7 +1,7 @@
 // =====================
 // CONFIG
 // =====================
-const SERVER_URL = "https://YOUR-RENDER-URL.onrender.com"; // <-- replace
+const SERVER_URL = "https://kabo-server.onrender.com"; // <-- replace
 
 // =====================
 // Socket
