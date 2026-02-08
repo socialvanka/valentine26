@@ -1,7 +1,7 @@
 // =====================
 // CONFIG
 // =====================
-const SERVER_URL = "https://kabo-server.onrender.com"; // <-- replace
+const SERVER_URL = "https://kabo-server.onrender.com";
 
 // =====================
 // Socket
@@ -35,7 +35,9 @@ const peekHint = document.getElementById("peekHint");
 const turnHint = document.getElementById("turnHint");
 
 const drawBtn = document.getElementById("drawBtn");
+// discardBtn removed from HTML under new rules; keep lookup safe
 const discardBtn = document.getElementById("discardBtn");
+
 const discardDrawnBtn = document.getElementById("discardDrawnBtn");
 const caboBtn = document.getElementById("caboBtn");
 
@@ -72,6 +74,9 @@ if (roomFromUrl) roomInput.value = roomFromUrl.toUpperCase();
 socket.onAny((event, ...args) => {
   console.log("[socket]", event, args);
 });
+
+// If old HTML still has discard button, hide it (rule: discard not takeable)
+if (discardBtn) discardBtn.style.display = "none";
 
 // =====================
 // Helpers
@@ -140,8 +145,6 @@ function clearDrawnUI() {
   myDrawnCard = null;
   myDrawnIsPower = false;
   if (powerBar) powerBar.style.display = "none";
-  // don't wipe hints aggressively; just remove drawn-specific hint if you want:
-  // actionHint.textContent = "";
 }
 
 function setDrawnUI(card, power) {
@@ -254,13 +257,11 @@ function renderHands() {
 
     div.innerHTML = `<div>${label}</div><div class="mini">#${i+1}</div>`;
 
-    // Initial peek: click to request peek (flash only)
     if (state.phase === "PEEK" && my.peeksLeft > 0) {
       div.classList.add("clickable");
       div.addEventListener("click", () => doPeek(i));
     }
 
-    // Swap drawn into hand: click to swap (Option B)
     if (state.phase === "TURN_DECIDE" && isMyTurn() && myDrawnCard) {
       div.classList.add("clickable");
       div.addEventListener("click", () => doSwap(i));
@@ -296,19 +297,17 @@ function doPeek(i) {
   });
 }
 
-function doTake(source) {
-  // Always clear local drawn state before taking a new card
+function doTake() {
+  // RULE: Only draw from draw pile; no "take discard"
   clearDrawnUI();
-
-  socket.emit("turn:take", { roomId: currentRoomId, source }, (res) => {
-    if (!res?.ok) setStatus(res?.error || "Take failed");
+  socket.emit("turn:take", { roomId: currentRoomId, source: "draw" }, (res) => {
+    if (!res?.ok) setStatus(res?.error || "Draw failed");
   });
 }
 
 function doDiscardDrawn() {
   socket.emit("turn:discardDrawn", { roomId: currentRoomId }, (res) => {
     if (!res?.ok) return setStatus(res?.error || "Discard failed");
-    // IMPORTANT: clear right away on success
     clearDrawnUI();
     closeModal();
   });
@@ -317,7 +316,6 @@ function doDiscardDrawn() {
 function doSwap(i) {
   socket.emit("turn:swap", { roomId: currentRoomId, handIndex: i }, (res) => {
     if (!res?.ok) return setStatus(res?.error || "Swap failed");
-    // IMPORTANT: clear right away on success
     clearDrawnUI();
     closeModal();
   });
@@ -341,7 +339,6 @@ function runPowerFlow() {
   if (!myDrawnCard) return;
   const r = myDrawnCard.r;
 
-  // 7/8 peek own
   if (r === "7" || r === "8") {
     showModal(`
       <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Peek one of YOUR cards</div>
@@ -357,7 +354,6 @@ function runPowerFlow() {
         const idx = parseInt(btn.getAttribute("data-i"), 10);
         socket.emit("power:peekOwn", { roomId: currentRoomId, handIndex: idx }, (res) => {
           if (!res?.ok) return setStatus(res?.error || "Power failed");
-          // IMPORTANT
           clearDrawnUI();
           closeModal();
         });
@@ -366,7 +362,6 @@ function runPowerFlow() {
     return;
   }
 
-  // 9/10 peek opponent
   if (r === "9" || r === "10") {
     showModal(`
       <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Peek one OPPONENT card</div>
@@ -382,7 +377,6 @@ function runPowerFlow() {
         const idx = parseInt(btn.getAttribute("data-i"), 10);
         socket.emit("power:peekOpp", { roomId: currentRoomId, oppIndex: idx }, (res) => {
           if (!res?.ok) return setStatus(res?.error || "Power failed");
-          // IMPORTANT
           clearDrawnUI();
           closeModal();
         });
@@ -391,7 +385,6 @@ function runPowerFlow() {
     return;
   }
 
-  // Jack skip
   if (r === "J") {
     showModal(`
       <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Skip opponent's next turn</div>
@@ -405,7 +398,6 @@ function runPowerFlow() {
     document.getElementById("doIt").onclick = () => {
       socket.emit("power:jackSkip", { roomId: currentRoomId }, (res) => {
         if (!res?.ok) return setStatus(res?.error || "Power failed");
-        // IMPORTANT
         clearDrawnUI();
         closeModal();
       });
@@ -413,7 +405,6 @@ function runPowerFlow() {
     return;
   }
 
-  // Queen unseen swap
   if (r === "Q") {
     showModal(`
       <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Unseen swap</div>
@@ -459,7 +450,6 @@ function runPowerFlow() {
     confirmBtn.onclick = () => {
       socket.emit("power:queenUnseenSwap", { roomId: currentRoomId, myIndex: myI, oppIndex: oppI }, (res) => {
         if (!res?.ok) return setStatus(res?.error || "Power failed");
-        // IMPORTANT
         clearDrawnUI();
         closeModal();
       });
@@ -467,7 +457,6 @@ function runPowerFlow() {
     return;
   }
 
-  // King seen swap (K1): preview both, then confirm
   if (r === "K") {
     showModal(`
       <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Seen swap (preview both)</div>
@@ -560,8 +549,9 @@ copyLinkBtn.addEventListener("click", async () => {
   setStatus("Link copied. Send it to her.");
 });
 
-drawBtn.addEventListener("click", () => doTake("draw"));
-discardBtn.addEventListener("click", () => doTake("discard"));
+// RULE: only draw
+drawBtn.addEventListener("click", doTake);
+
 discardDrawnBtn.addEventListener("click", doDiscardDrawn);
 caboBtn.addEventListener("click", doCabo);
 
@@ -581,8 +571,7 @@ socket.on("room:update", (s) => {
   setBoardVisible(s.started);
   renderLog(s.log || []);
 
-  // Debug snapshot
-  console.log("STATE", { phase: s.phase, turn: s.turnSocketId, me: socket.id, drawCount: s.drawCount, discardTop: s.discardTop });
+  console.log("STATE", { phase: s.phase, turn: s.turnSocketId, me: socket.id, drawCount: s.drawCount, discardCount: s.discardCount });
 
   const my = me();
   const opp = opponent();
@@ -592,13 +581,12 @@ socket.on("room:update", (s) => {
   else setStatus(s.phase === "PEEK" ? "Peek phase" : "Game in progress");
 
   drawMeta.textContent = `Cards left: ${s.drawCount}`;
-  discardMeta.textContent = s.discardTop ? `Top: ${formatCard(s.discardTop)}` : `Empty`;
+  discardMeta.textContent = `Discarded: ${s.discardCount ?? 0} (not usable)`;
 
   startBtn.style.display = (!s.started && s.players[0]?.socketId === socket.id && s.players.length === 2) ? "inline-block" : "none";
 
   const myTurn = isMyTurn();
 
-  // CRITICAL: if it's not my turn, I must not keep any drawn-card UI
   if (!myTurn) {
     clearDrawnUI();
     closeModal();
@@ -612,10 +600,10 @@ socket.on("room:update", (s) => {
   } else if (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN") {
     peekHint.textContent = "";
     turnHint.textContent = myTurn
-      ? "Your turn: Draw / Take Discard, or call CABO (≤ 5)."
+      ? "Your turn: Draw a card, or call CABO (≤ 5)."
       : "Opponent's turn.";
     actionHint.textContent = myTurn
-      ? "CABO is only allowed if your total is ≤ 5 (K♥/K♦ count as -1)."
+      ? "CABO allowed only if your total is ≤ 5 (K♥/K♦ count as -1)."
       : "";
     clearDrawnUI();
   } else if (s.phase === "TURN_DECIDE") {
@@ -634,38 +622,29 @@ socket.on("room:update", (s) => {
     }
   }
 
-  // Enable/disable controls
+  // Enable/disable controls (discard button does not exist)
   drawBtn.disabled = !(myTurn && (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN"));
-  discardBtn.disabled = !(myTurn && (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN") && !!s.discardTop);
-
   discardDrawnBtn.disabled = !(myTurn && s.phase === "TURN_DECIDE" && !!myDrawnCard);
   caboBtn.disabled = !(myTurn && s.phase === "TURN_DRAW");
 
   renderHands();
 });
 
-// Initial peek flash only
 socket.on("peek:result", ({ index, card }) => {
   flashPeek(`Peeked your #${index + 1}: ${formatCard(card)} (score ${card.score})`);
 });
 
-// Draw result (private): show card + enable power UI
 socket.on("turn:drawResult", ({ card, power }) => {
-  // This event should only come to the current player.
-  // Extra safety: if server says it's not my turn (race), ignore.
   if (!isMyTurn()) return;
-
   setDrawnUI(card, power);
-  renderHands(); // enables swapping by clicking your card
+  renderHands();
 });
 
-// Power reveals flash only (memory)
 socket.on("power:reveal", ({ kind, index, card }) => {
   if (kind === "own") flashPeek(`Peeked your #${index + 1}: ${formatCard(card)} (score ${card.score})`);
   else flashPeek(`Peeked opponent #${index + 1}: ${formatCard(card)} (score ${card.score})`);
 });
 
-// King preview confirm modal
 socket.on("king:preview", ({ myIndex, oppIndex, myCard, oppCard }) => {
   showModal(`
     <div style="font-weight:900;margin-bottom:10px;">King Preview (K1)</div>
