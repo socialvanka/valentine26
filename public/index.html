@@ -7,20 +7,19 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@400;500;600&family=Lobster&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lobster&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="css/styles.css" />
-
-  <!-- Socket.IO client (CDN) -->
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
+
 <body>
   <div class="bg" aria-hidden="true" id="bg"></div>
 
   <!-- GAME SCREEN -->
   <div class="wrap" id="gameScreen">
     <div class="card">
-      <h1>Kabo first. 💜</h1>
+      <h1 class="title">Kabo first. 💜</h1>
       <div class="sub" id="gameStatus">Create a room or join your partner.</div>
 
       <div class="row">
@@ -56,21 +55,22 @@
 
         <div class="mid">
           <div class="stack">
-            <div class="stackTitle">Draw</div>
+            <div class="stackTitle">Draw pile</div>
             <button id="drawBtn" class="stackBtn">Draw</button>
             <div class="stackMeta" id="drawMeta"></div>
           </div>
 
-          <!-- Discard exists but is NOT usable under your rules -->
           <div class="stack">
-            <div class="stackTitle">Discard</div>
-            <div class="stackMeta" id="discardMeta">Discarded: 0 (not usable)</div>
+            <div class="stackTitle">Center pile</div>
+            <div class="centerCard" id="centerCard">—</div>
+            <div class="stackMeta" id="centerMeta"></div>
           </div>
 
           <div class="stack wide">
             <div class="stackTitle">Action</div>
             <div class="actionRow">
-              <button id="discardDrawnBtn">Discard drawn</button>
+              <button id="swapBtn">Swap into my hand</button>
+              <button id="discardDrawnBtn">Play drawn to center</button>
               <button id="caboBtn" class="danger">CABO!</button>
             </div>
             <div class="hint" id="actionHint"></div>
@@ -80,21 +80,28 @@
         <div class="log" id="log"></div>
       </div>
 
-      <!-- Host-only fallback button (non-host gets popup automatically) -->
       <div class="row" id="endRow" style="display:none;">
         <button id="unlockBtn" class="primary">Unlock Valentine 💜</button>
       </div>
+
+      <!-- Host-only bypass (fixed) -->
+      <button id="bypassBtn" class="bypass" type="button" style="display:none;">Bypass ↗</button>
     </div>
   </div>
 
   <!-- VALENTINE SCREEN -->
   <div class="wrap" id="valScreen" style="display:none;">
     <div class="card">
-      <h1>Will you be my Valentine? 💜</h1>
+      <h1 class="valTitle">Will you be my Valentine? 💜</h1>
       <div class="sub" id="subtitle"></div>
 
+      <div id="livePanel" class="livePanel" style="display:none;">
+        <div class="liveTitle">Live (her actions)</div>
+        <div id="liveFeed" class="liveFeed"></div>
+      </div>
+
       <div class="btns" id="btnRow">
-        <button id="yesBtn" class="primary">Yes</button>
+        <button id="yesBtn" class="primary bigYes">Yes</button>
         <button id="noBtn" class="soft">No</button>
       </div>
 
