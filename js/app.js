@@ -3,6 +3,14 @@
 // =====================
 const SERVER_URL = "https://kabo-server.onrender.com";
 
+// Valentine assets (edit these)
+const VAL_PHOTOS = [
+  "assets/photo1.jpeg",
+  "assets/photo2.jpeg",
+  "assets/photo3.jpeg",
+];
+const VAL_AUDIO = "assets/orangrez.mp3";
+
 // =====================
 // Socket
 // =====================
@@ -35,9 +43,6 @@ const peekHint = document.getElementById("peekHint");
 const turnHint = document.getElementById("turnHint");
 
 const drawBtn = document.getElementById("drawBtn");
-// discardBtn removed from HTML under new rules; keep lookup safe
-const discardBtn = document.getElementById("discardBtn");
-
 const discardDrawnBtn = document.getElementById("discardDrawnBtn");
 const caboBtn = document.getElementById("caboBtn");
 
@@ -50,14 +55,31 @@ const endRow = document.getElementById("endRow");
 const unlockBtn = document.getElementById("unlockBtn");
 
 // =====================
+// DOM - Valentine
+// =====================
+const subtitle = document.getElementById("subtitle");
+const btnRow = document.getElementById("btnRow");
+const yesBtn = document.getElementById("yesBtn");
+const noBtn = document.getElementById("noBtn");
+
+const reveal = document.getElementById("reveal");
+const sweetLine = document.getElementById("sweetLine");
+const track = document.getElementById("track");
+const dots = document.getElementById("dots");
+const audio = document.getElementById("bgAudio");
+const audioCtl = document.getElementById("audioCtl");
+const audioBtn = document.getElementById("audioBtn");
+const audioStatus = document.getElementById("audioStatus");
+const micdrop = document.getElementById("micdrop");
+
+// =====================
 // State
 // =====================
 let currentRoomId = null;
 let state = null;
 
-// Private turn state (should NEVER be visible when not my turn)
+// Private drawn state (never leak to other turn)
 let myDrawnCard = null;
-let myDrawnIsPower = false;
 
 // Power UI injected
 let powerBar = null;
@@ -69,14 +91,9 @@ const roomFromUrl = params.get("room");
 if (roomFromUrl) roomInput.value = roomFromUrl.toUpperCase();
 
 // =====================
-// Debug (leave ON while building)
+// Debug
 // =====================
-socket.onAny((event, ...args) => {
-  console.log("[socket]", event, args);
-});
-
-// If old HTML still has discard button, hide it (rule: discard not takeable)
-if (discardBtn) discardBtn.style.display = "none";
+socket.onAny((event, ...args) => console.log("[socket]", event, args));
 
 // =====================
 // Helpers
@@ -85,10 +102,11 @@ function setStatus(s) { gameStatus.textContent = s; }
 function me() { return state?.players?.find(p => p.isMe); }
 function opponent() { return state?.players?.find(p => !p.isMe); }
 function isMyTurn() { return state?.turnSocketId === socket.id; }
+function isHost() { return state?.players?.[0]?.socketId === socket.id; }
 
 function renderLog(lines) {
   logEl.innerHTML = "";
-  lines.forEach(l => {
+  (lines || []).forEach(l => {
     const div = document.createElement("div");
     div.textContent = "• " + l;
     logEl.appendChild(div);
@@ -113,59 +131,11 @@ function formatCard(c) {
   return `${c.r}${suitSym(c.s)} (base ${c.base})`;
 }
 
-// Memory flash overlay (auto disappears)
-function flashPeek(text) {
-  const el = document.createElement("div");
-  el.style.position = "fixed";
-  el.style.left = "50%";
-  el.style.top = "18px";
-  el.style.transform = "translateX(-50%)";
-  el.style.padding = "12px 14px";
-  el.style.borderRadius = "14px";
-  el.style.background = "rgba(255,255,255,.92)";
-  el.style.boxShadow = "0 14px 40px rgba(0,0,0,.18)";
-  el.style.zIndex = "99999";
-  el.style.fontWeight = "750";
-  el.style.maxWidth = "min(520px, 92vw)";
-  el.style.textAlign = "center";
-  el.textContent = text;
-
-  document.body.appendChild(el);
-
-  setTimeout(() => {
-    el.style.transition = "opacity 250ms ease, transform 250ms ease";
-    el.style.opacity = "0";
-    el.style.transform = "translateX(-50%) translateY(-6px)";
-  }, 950);
-
-  setTimeout(() => el.remove(), 1250);
-}
-
 function clearDrawnUI() {
   myDrawnCard = null;
-  myDrawnIsPower = false;
   if (powerBar) powerBar.style.display = "none";
 }
 
-function setDrawnUI(card, power) {
-  ensurePowerUI();
-  myDrawnCard = card;
-  myDrawnIsPower = !!power;
-
-  actionHint.textContent = `You drew: ${formatCard(card)}. Tap one of your cards to swap OR discard OR use power.`;
-
-  const title = document.getElementById("drawnTitle");
-  title.textContent = power
-    ? `You drew ${formatCard(card)} — Power available. Choose: swap OR use power OR discard.`
-    : `You drew ${formatCard(card)} — Choose: swap OR discard.`;
-
-  document.getElementById("usePowerBtn").disabled = !power;
-  powerBar.style.display = "flex";
-}
-
-// =====================
-// Power UI
-// =====================
 function ensurePowerUI() {
   if (powerBar) return;
 
@@ -195,10 +165,8 @@ function ensurePowerUI() {
   discardBtn2.textContent = "Discard drawn";
   powerBar.appendChild(discardBtn2);
 
-  // Insert after actionHint
   actionHint.parentElement.appendChild(powerBar);
 
-  // Modal container
   modal = document.createElement("div");
   modal.style.position = "fixed";
   modal.style.inset = "0";
@@ -228,13 +196,25 @@ function showModal(html) {
   document.getElementById("modalBox").innerHTML = html;
   modal.style.display = "grid";
 }
-
 function closeModal() {
   if (modal) modal.style.display = "none";
 }
 
+// Flip a card cell for ms duration
+function flipReveal(gridEl, index, frontHtml, ms = 3000) {
+  const cell = gridEl.querySelector(`[data-idx="${index}"]`);
+  if (!cell) return;
+
+  const front = cell.querySelector(".cardFront");
+  if (!front) return;
+
+  front.innerHTML = frontHtml;
+  cell.classList.add("flipped");
+  setTimeout(() => cell.classList.remove("flipped"), ms);
+}
+
 // =====================
-// Render hands (memory game: always hidden until END)
+// Render hands (always hidden until END)
 // =====================
 function renderHands() {
   myGrid.innerHTML = "";
@@ -244,18 +224,22 @@ function renderHands() {
   const opp = opponent();
   if (!my || !opp) return;
 
-  // My cards
   for (let i = 0; i < 4; i++) {
     const endedCard = state.phase === "ENDED" ? my.hand[i] : null;
 
     const div = document.createElement("div");
     div.className = "cardCell";
+    div.setAttribute("data-idx", i);
 
-    const label = (state.phase === "ENDED")
-      ? `${endedCard.r}${suitSym(endedCard.s)} (score ${endedCard.score})`
-      : "🂠";
-
-    div.innerHTML = `<div>${label}</div><div class="mini">#${i+1}</div>`;
+    div.innerHTML = `
+      <div class="cardInner">
+        <div class="cardFace cardBack">
+          <div>${state.phase === "ENDED" ? `${endedCard.r}${suitSym(endedCard.s)} (score ${endedCard.score})` : "🂠"}</div>
+          <div class="mini">#${i+1}</div>
+        </div>
+        <div class="cardFace cardFront"></div>
+      </div>
+    `;
 
     if (state.phase === "PEEK" && my.peeksLeft > 0) {
       div.classList.add("clickable");
@@ -270,18 +254,23 @@ function renderHands() {
     myGrid.appendChild(div);
   }
 
-  // Opponent cards
   for (let i = 0; i < 4; i++) {
     const endedCard = state.phase === "ENDED" ? opp.hand[i] : null;
 
     const div = document.createElement("div");
     div.className = "cardCell";
+    div.setAttribute("data-idx", i);
 
-    const label = (state.phase === "ENDED")
-      ? `${endedCard.r}${suitSym(endedCard.s)} (score ${endedCard.score})`
-      : "🂠";
+    div.innerHTML = `
+      <div class="cardInner">
+        <div class="cardFace cardBack">
+          <div>${state.phase === "ENDED" ? `${endedCard.r}${suitSym(endedCard.s)} (score ${endedCard.score})` : "🂠"}</div>
+          <div class="mini">#${i+1}</div>
+        </div>
+        <div class="cardFace cardFront"></div>
+      </div>
+    `;
 
-    div.innerHTML = `<div>${label}</div><div class="mini">#${i+1}</div>`;
     oppGrid.appendChild(div);
   }
 
@@ -289,7 +278,7 @@ function renderHands() {
 }
 
 // =====================
-// Actions
+// Game actions
 // =====================
 function doPeek(i) {
   socket.emit("game:peek", { roomId: currentRoomId, index: i }, (res) => {
@@ -297,8 +286,7 @@ function doPeek(i) {
   });
 }
 
-function doTake() {
-  // RULE: Only draw from draw pile; no "take discard"
+function doDraw() {
   clearDrawnUI();
   socket.emit("turn:take", { roomId: currentRoomId, source: "draw" }, (res) => {
     if (!res?.ok) setStatus(res?.error || "Draw failed");
@@ -333,7 +321,7 @@ function doCabo() {
 }
 
 // =====================
-// Power Flow
+// Power Flow (Option B)
 // =====================
 function runPowerFlow() {
   if (!myDrawnCard) return;
@@ -341,8 +329,8 @@ function runPowerFlow() {
 
   if (r === "7" || r === "8") {
     showModal(`
-      <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Peek one of YOUR cards</div>
-      <div style="opacity:.85;margin-bottom:10px;">Pick a position (flash reveal):</div>
+      <div style="font-weight:900;margin-bottom:10px;">Peek one of YOUR cards</div>
+      <div style="opacity:.85;margin-bottom:10px;">Pick a position:</div>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
         ${[0,1,2,3].map(i => `<button data-i="${i}">Peek #${i+1}</button>`).join("")}
       </div>
@@ -364,8 +352,8 @@ function runPowerFlow() {
 
   if (r === "9" || r === "10") {
     showModal(`
-      <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Peek one OPPONENT card</div>
-      <div style="opacity:.85;margin-bottom:10px;">Pick a position (flash reveal):</div>
+      <div style="font-weight:900;margin-bottom:10px;">Peek one OPPONENT card</div>
+      <div style="opacity:.85;margin-bottom:10px;">Pick a position:</div>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
         ${[0,1,2,3].map(i => `<button data-i="${i}">Peek Opp #${i+1}</button>`).join("")}
       </div>
@@ -387,8 +375,7 @@ function runPowerFlow() {
 
   if (r === "J") {
     showModal(`
-      <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Skip opponent's next turn</div>
-      <div style="opacity:.85;margin-bottom:12px;">(2 players: it comes back to you)</div>
+      <div style="font-weight:900;margin-bottom:10px;">Use Jack to skip opponent's next turn</div>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
         <button id="doIt">Use Jack</button>
         <button id="cancel">Cancel</button>
@@ -407,8 +394,8 @@ function runPowerFlow() {
 
   if (r === "Q") {
     showModal(`
-      <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Unseen swap</div>
-      <div style="opacity:.85;margin-bottom:10px;">Pick YOUR card + OPPONENT card (no reveals):</div>
+      <div style="font-weight:900;margin-bottom:10px;">Queen: unseen swap</div>
+      <div style="opacity:.85;margin-bottom:10px;">Pick YOUR card + OPPONENT card:</div>
       <div style="display:grid;gap:12px;justify-content:center;">
         <div>
           <div style="opacity:.8;margin-bottom:6px;">Your card:</div>
@@ -459,8 +446,8 @@ function runPowerFlow() {
 
   if (r === "K") {
     showModal(`
-      <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Seen swap (preview both)</div>
-      <div style="opacity:.85;margin-bottom:10px;">Pick YOUR card + OPPONENT card to preview:</div>
+      <div style="font-weight:900;margin-bottom:10px;">King: seen swap (preview)</div>
+      <div style="opacity:.85;margin-bottom:10px;">Pick YOUR card + OPPONENT card:</div>
       <div style="display:grid;gap:12px;justify-content:center;">
         <div>
           <div style="opacity:.8;margin-bottom:6px;">Your card:</div>
@@ -507,11 +494,11 @@ function runPowerFlow() {
     return;
   }
 
-  setStatus("No power available for this card.");
+  setStatus("No power for this card.");
 }
 
 // =====================
-// Buttons
+// Lobby buttons
 // =====================
 createBtn.addEventListener("click", () => {
   const name = (nameInput.value || "Player 1").trim();
@@ -549,16 +536,12 @@ copyLinkBtn.addEventListener("click", async () => {
   setStatus("Link copied. Send it to her.");
 });
 
-// RULE: only draw
-drawBtn.addEventListener("click", doTake);
-
+drawBtn.addEventListener("click", doDraw);
 discardDrawnBtn.addEventListener("click", doDiscardDrawn);
 caboBtn.addEventListener("click", doCabo);
 
-unlockBtn?.addEventListener("click", () => {
-  gameScreen.style.display = "none";
-  valScreen.style.display = "block";
-});
+// Host fallback unlock button
+unlockBtn?.addEventListener("click", () => gotoValentine());
 
 // =====================
 // Socket events
@@ -571,8 +554,6 @@ socket.on("room:update", (s) => {
   setBoardVisible(s.started);
   renderLog(s.log || []);
 
-  console.log("STATE", { phase: s.phase, turn: s.turnSocketId, me: socket.id, drawCount: s.drawCount, discardCount: s.discardCount });
-
   const my = me();
   const opp = opponent();
 
@@ -583,17 +564,21 @@ socket.on("room:update", (s) => {
   drawMeta.textContent = `Cards left: ${s.drawCount}`;
   discardMeta.textContent = `Discarded: ${s.discardCount ?? 0} (not usable)`;
 
-  startBtn.style.display = (!s.started && s.players[0]?.socketId === socket.id && s.players.length === 2) ? "inline-block" : "none";
+  startBtn.style.display =
+    (!s.started && s.players[0]?.socketId === socket.id && s.players.length === 2)
+      ? "inline-block"
+      : "none";
 
   const myTurn = isMyTurn();
 
+  // Safety: if not my turn, remove any drawn info
   if (!myTurn) {
     clearDrawnUI();
     closeModal();
   }
 
   if (s.phase === "PEEK") {
-    peekHint.textContent = my ? `Peek remaining: ${my.peeksLeft}. Tap your cards (flash only).` : "";
+    peekHint.textContent = my ? `Peek remaining: ${my.peeksLeft}. Tap your cards (3s reveal).` : "";
     turnHint.textContent = "Opponent is peeking too.";
     actionHint.textContent = "";
     clearDrawnUI();
@@ -608,21 +593,36 @@ socket.on("room:update", (s) => {
     clearDrawnUI();
   } else if (s.phase === "TURN_DECIDE") {
     turnHint.textContent = myTurn
-      ? "Decide: swap the drawn card (tap your card), or discard, or use power."
+      ? "Decide: swap (tap your card), or discard, or use power."
       : "Opponent deciding.";
   } else if (s.phase === "ENDED") {
     turnHint.textContent = "Round ended (all cards revealed).";
     actionHint.textContent = "";
-    endRow.style.display = "flex";
     clearDrawnUI();
+
     const ended = s.ended;
     if (ended) {
       const lines = ended.scores.map(x => `${x.name}: ${x.score}`).join(" | ");
       setStatus(`Winner: ${ended.winnerName} — ${lines}`);
     }
+
+    // Host can see the bottom unlock button (optional)
+    endRow.style.display = isHost() ? "flex" : "none";
+
+    // Non-host gets a popup CTA to go to valentine page
+    if (!isHost()) {
+      showModal(`
+        <div style="font-weight:900;font-size:18px;margin-bottom:8px;">Okay… that was cute 💜</div>
+        <div style="opacity:.9;margin-bottom:14px;">Click to unlock the next page.</div>
+        <button id="goVal" style="padding:12px 16px;border-radius:14px;font-weight:900;">Unlock Valentine 💜</button>
+      `);
+      document.getElementById("goVal").onclick = () => {
+        closeModal();
+        gotoValentine();
+      };
+    }
   }
 
-  // Enable/disable controls (discard button does not exist)
   drawBtn.disabled = !(myTurn && (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN"));
   discardDrawnBtn.disabled = !(myTurn && s.phase === "TURN_DECIDE" && !!myDrawnCard);
   caboBtn.disabled = !(myTurn && s.phase === "TURN_DRAW");
@@ -630,21 +630,47 @@ socket.on("room:update", (s) => {
   renderHands();
 });
 
+// Peek result: flip YOUR card for 3s
 socket.on("peek:result", ({ index, card }) => {
-  flashPeek(`Peeked your #${index + 1}: ${formatCard(card)} (score ${card.score})`);
+  flipReveal(
+    myGrid,
+    index,
+    `<div class="big">${card.r}${suitSym(card.s)}</div><div class="small">score ${card.score}</div>`,
+    3000
+  );
 });
 
+// Draw result (private): show action bar + allow swap/power
 socket.on("turn:drawResult", ({ card, power }) => {
   if (!isMyTurn()) return;
-  setDrawnUI(card, power);
+
+  ensurePowerUI();
+  myDrawnCard = card;
+
+  actionHint.textContent = `You drew: ${formatCard(card)}. Tap one of your cards to swap OR discard OR use power.`;
+
+  const title = document.getElementById("drawnTitle");
+  title.textContent = power
+    ? `You drew ${formatCard(card)} — Power available.`
+    : `You drew ${formatCard(card)} — No power.`;
+
+  document.getElementById("usePowerBtn").disabled = !power;
+  powerBar.style.display = "flex";
   renderHands();
 });
 
+// Power reveals: flip for 3s on relevant grid
 socket.on("power:reveal", ({ kind, index, card }) => {
-  if (kind === "own") flashPeek(`Peeked your #${index + 1}: ${formatCard(card)} (score ${card.score})`);
-  else flashPeek(`Peeked opponent #${index + 1}: ${formatCard(card)} (score ${card.score})`);
+  const grid = (kind === "own") ? myGrid : oppGrid;
+  flipReveal(
+    grid,
+    index,
+    `<div class="big">${card.r}${suitSym(card.s)}</div><div class="small">score ${card.score}</div>`,
+    3000
+  );
 });
 
+// King preview: show modal confirm
 socket.on("king:preview", ({ myIndex, oppIndex, myCard, oppCard }) => {
   showModal(`
     <div style="font-weight:900;margin-bottom:10px;">King Preview (K1)</div>
@@ -672,3 +698,123 @@ socket.on("king:preview", ({ myIndex, oppIndex, myCard, oppCard }) => {
     });
   };
 });
+
+// =====================
+// Valentine page logic
+// =====================
+let yesScale = 1;
+let noStep = 0;
+const NO_LINES = [
+  "No",
+  "Come on please 😭",
+  "For real??",
+  "Pleaseeee 🥺",
+  "Okay you’re just being dramatic 😌",
+  "…fine, I’m out."
+];
+
+function gotoValentine() {
+  gameScreen.style.display = "none";
+  valScreen.style.display = "block";
+  initValentine();
+}
+
+function initValentine() {
+  subtitle.textContent = "Quick question…";
+  audio.src = VAL_AUDIO;
+
+  // Build carousel
+  track.innerHTML = "";
+  dots.innerHTML = "";
+
+  VAL_PHOTOS.forEach((src, i) => {
+    const slide = document.createElement("div");
+    slide.className = "slide";
+    slide.innerHTML = `<img src="${src}" alt="Photo ${i+1}">`;
+    track.appendChild(slide);
+
+    const dot = document.createElement("div");
+    dot.className = "dot" + (i === 0 ? " active" : "");
+    dot.addEventListener("click", () => goTo(i));
+    dots.appendChild(dot);
+  });
+
+  goTo(0);
+  startAutoCarousel();
+
+  // audio control
+  audioCtl.style.display = "inline-flex";
+  audioStatus.textContent = "Tap to play our song 💜";
+  audioBtn.onclick = async () => {
+    try {
+      audio.volume = 0.55;
+      await audio.play();
+      audioStatus.textContent = "Playing 🎶";
+    } catch (e) {
+      audioStatus.textContent = "Autoplay blocked — tap again";
+    }
+  };
+
+  // reset no/yes
+  yesScale = 1;
+  noStep = 0;
+  document.documentElement.style.setProperty("--yesScale", "1");
+  if (noBtn && !noBtn.isConnected) btnRow.appendChild(noBtn);
+
+  yesBtn.onclick = () => acceptValentine();
+  noBtn.onclick = () => handleNo();
+}
+
+let carouselIndex = 0;
+let carouselTimer = null;
+
+function goTo(i) {
+  carouselIndex = (i + VAL_PHOTOS.length) % VAL_PHOTOS.length;
+  track.style.transform = `translateX(-${carouselIndex * 100}%)`;
+  [...dots.children].forEach((d, k) => d.classList.toggle("active", k === carouselIndex));
+}
+
+function startAutoCarousel() {
+  stopAutoCarousel();
+  carouselTimer = setInterval(() => goTo(carouselIndex + 1), 2600);
+}
+function stopAutoCarousel() {
+  if (carouselTimer) clearInterval(carouselTimer);
+  carouselTimer = null;
+}
+
+function bumpYes() {
+  yesScale = Math.min(yesScale + 0.18, 2.2);
+  yesBtn.style.setProperty("--yesScale", yesScale.toFixed(2));
+}
+
+function handleNo() {
+  bumpYes();
+  noStep = Math.min(noStep + 1, NO_LINES.length - 1);
+  noBtn.textContent = NO_LINES[noStep];
+
+  subtitle.textContent = "Trying to say no? cute.";
+
+  if (noStep >= NO_LINES.length - 1) {
+    noBtn.remove();
+    subtitle.textContent = "Good. Now press Yes like you mean it 💜";
+  }
+}
+
+function acceptValentine() {
+  subtitle.textContent = "Knew it 😌";
+  btnRow.style.display = "none";
+
+  reveal.classList.add("show");
+  sweetLine.textContent = "Now come here… I have something for you 💜";
+  micdrop.textContent = "So yes… it’s you. Always was.";
+
+  // attempt play after user click
+  (async () => {
+    try {
+      audio.volume = 0.55;
+      await audio.play();
+      audioStatus.textContent = "Playing 🎶";
+    } catch {}
+  })();
+}

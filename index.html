@@ -61,10 +61,10 @@
             <div class="stackMeta" id="drawMeta"></div>
           </div>
 
-          <!-- UPDATED: Discard is not usable under your rules -->
+          <!-- Discard exists but is NOT usable under your rules -->
           <div class="stack">
             <div class="stackTitle">Discard</div>
-            <div class="stackMeta" id="discardMeta">Not usable (rule)</div>
+            <div class="stackMeta" id="discardMeta">Discarded: 0 (not usable)</div>
           </div>
 
           <div class="stack wide">
@@ -80,6 +80,7 @@
         <div class="log" id="log"></div>
       </div>
 
+      <!-- Host-only fallback button (non-host gets popup automatically) -->
       <div class="row" id="endRow" style="display:none;">
         <button id="unlockBtn" class="primary">Unlock Valentine 💜</button>
       </div>
@@ -94,6 +95,7 @@
 
       <div class="btns" id="btnRow">
         <button id="yesBtn" class="primary">Yes</button>
+        <button id="noBtn" class="soft">No</button>
       </div>
 
       <div class="reveal" id="reveal">
