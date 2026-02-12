@@ -1,7 +1,7 @@
 // =====================
 // CONFIG
 // =====================
-const SERVER_URL = "https://kabo-server.onrender.com";
+const SERVER_URL = "https://kabo-server.onrender.com"; // <-- replace if needed
 
 // Valentine assets (edit these)
 const VAL_PHOTOS = [
@@ -84,6 +84,10 @@ let myDrawnCard = null;
 // Power UI injected
 let powerBar = null;
 let modal = null;
+
+// IMPORTANT: queue flips because room:update re-renders the grid
+let pendingFlip = null;
+// { grid: "my"|"opp", index, html, ms, ts }
 
 // query param auto-join
 const params = new URLSearchParams(location.search);
@@ -211,6 +215,23 @@ function flipReveal(gridEl, index, frontHtml, ms = 3000) {
   front.innerHTML = frontHtml;
   cell.classList.add("flipped");
   setTimeout(() => cell.classList.remove("flipped"), ms);
+}
+
+// Queue flip because renderHands() will rebuild DOM on room:update
+function queueFlip(grid, index, html, ms = 3000) {
+  pendingFlip = { grid, index, html, ms, ts: Date.now() };
+}
+
+function applyPendingFlipIfAny() {
+  if (!pendingFlip) return;
+  // If it’s too late, skip
+  if (Date.now() - pendingFlip.ts > 1200) {
+    pendingFlip = null;
+    return;
+  }
+  const gridEl = pendingFlip.grid === "my" ? myGrid : oppGrid;
+  flipReveal(gridEl, pendingFlip.index, pendingFlip.html, pendingFlip.ms);
+  pendingFlip = null;
 }
 
 // =====================
@@ -628,12 +649,13 @@ socket.on("room:update", (s) => {
   caboBtn.disabled = !(myTurn && s.phase === "TURN_DRAW");
 
   renderHands();
+  applyPendingFlipIfAny(); // ✅ FIX: apply flip after DOM is rebuilt
 });
 
-// Peek result: flip YOUR card for 3s
+// Peek result: queue flip (because room:update may re-render immediately)
 socket.on("peek:result", ({ index, card }) => {
-  flipReveal(
-    myGrid,
+  queueFlip(
+    "my",
     index,
     `<div class="big">${card.r}${suitSym(card.s)}</div><div class="small">score ${card.score}</div>`,
     3000
@@ -659,11 +681,10 @@ socket.on("turn:drawResult", ({ card, power }) => {
   renderHands();
 });
 
-// Power reveals: flip for 3s on relevant grid
+// Power reveals: queue flip for the correct grid
 socket.on("power:reveal", ({ kind, index, card }) => {
-  const grid = (kind === "own") ? myGrid : oppGrid;
-  flipReveal(
-    grid,
+  queueFlip(
+    kind === "own" ? "my" : "opp",
     index,
     `<div class="big">${card.r}${suitSym(card.s)}</div><div class="small">score ${card.score}</div>`,
     3000
@@ -704,6 +725,7 @@ socket.on("king:preview", ({ myIndex, oppIndex, myCard, oppCard }) => {
 // =====================
 let yesScale = 1;
 let noStep = 0;
+
 const NO_LINES = [
   "No",
   "Come on please 😭",
@@ -750,16 +772,21 @@ function initValentine() {
       audio.volume = 0.55;
       await audio.play();
       audioStatus.textContent = "Playing 🎶";
-    } catch (e) {
+    } catch {
       audioStatus.textContent = "Autoplay blocked — tap again";
     }
   };
 
   // reset no/yes
+  btnRow.style.display = "flex";
+  reveal.classList.remove("show");
+
   yesScale = 1;
   noStep = 0;
-  document.documentElement.style.setProperty("--yesScale", "1");
-  if (noBtn && !noBtn.isConnected) btnRow.appendChild(noBtn);
+  yesBtn.style.setProperty("--yesScale", "1");
+  noBtn.textContent = "No";
+
+  if (!noBtn.isConnected) btnRow.appendChild(noBtn);
 
   yesBtn.onclick = () => acceptValentine();
   noBtn.onclick = () => handleNo();
@@ -778,6 +805,7 @@ function startAutoCarousel() {
   stopAutoCarousel();
   carouselTimer = setInterval(() => goTo(carouselIndex + 1), 2600);
 }
+
 function stopAutoCarousel() {
   if (carouselTimer) clearInterval(carouselTimer);
   carouselTimer = null;
