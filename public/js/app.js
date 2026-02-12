@@ -1,7 +1,7 @@
 // =====================
 // CONFIG
 // =====================
-const SERVER_URL = "https://kabo-server.onrender.com"; // <-- your server URL
+const SERVER_URL = "https://kabo-server-1.onrender.com"; // <-- your server URL
 const socket = io(SERVER_URL, { transports: ["websocket"] });
 
 // =====================
