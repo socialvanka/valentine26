@@ -606,10 +606,10 @@ socket.on("room:update", (s) => {
   } else if (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN") {
     peekHint.textContent = "";
     turnHint.textContent = myTurn
-      ? "Your turn: Draw a card, or call CABO (≤ 5)."
+      ? "Your turn: Draw a card, or call CABO (<10)."
       : "Opponent's turn.";
     actionHint.textContent = myTurn
-      ? "CABO allowed only if your total is ≤ 5 (K♥/K♦ count as -1)."
+      ? "CABO allowed only if your total is < 10 (K♥/K♦ count as -1)."
       : "";
     clearDrawnUI();
   } else if (s.phase === "TURN_DECIDE") {
