@@ -100,6 +100,22 @@ const photos = [
 ];
 const audioFile = "assets/orangrez.mp3";
 
+// Temporary reveal (memory flip)
+const tempReveal = {
+  my: new Map(),     // index -> card object
+  opp: new Map()     // (optional) if you ever want opponent tile flips for yourself only
+};
+
+function revealMyCardFor3s(index, card) {
+  tempReveal.my.set(index, card);
+  renderHands();
+
+  setTimeout(() => {
+    tempReveal.my.delete(index);
+    renderHands();
+  }, 3000);
+}
+
 // =====================
 // Helpers
 // =====================
@@ -204,28 +220,52 @@ function renderHands() {
   const opp = opponent();
   if (!my || !opp) return;
 
-  // My cards (always hidden except ENDED)
+   // My cards
   for (let i = 0; i < 4; i++) {
     const endedCard = state.phase === "ENDED" ? my.hand[i] : null;
 
-    const { cell, flip } = makeCardCell(
-      "🂠",
-      state.phase === "ENDED" ? `${endedCard.r}${suitSym(endedCard.s)} (${endedCard.score})` : "🂠",
-      `#${i+1}`
-    );
+    const isRevealedNow =
+      (state.phase === "PEEK" && tempReveal.my.has(i)) ||
+      (state.phase !== "ENDED" && tempReveal.my.has(i)); // for power-peeks too
 
+    const shownCard = tempReveal.my.get(i) || endedCard;
+
+    const label = (state.phase === "ENDED")
+      ? `${shownCard.r}${suitSym(shownCard.s)} (score ${shownCard.score})`
+      : isRevealedNow
+        ? `${shownCard.r}${suitSym(shownCard.s)}`
+        : "🂠";
+
+    const div = document.createElement("div");
+    div.className = "cardCell" + (isRevealedNow ? " revealed" : "");
+
+    div.innerHTML = `
+      <div class="flipCard">
+        <div class="flipInner">
+          <div class="face backFace">
+            <div class="big">🂠</div>
+          </div>
+          <div class="face frontFace">
+            <div class="big">${label}</div>
+          </div>
+        </div>
+      </div>
+      <div class="mini">#${i+1}</div>
+    `;
+
+    // Initial peek: click to request peek (server responds, we reveal for 3s)
     if (state.phase === "PEEK" && my.peeksLeft > 0) {
-      cell.classList.add("clickable");
-      cell.addEventListener("click", () => doPeek(i));
+      div.classList.add("clickable");
+      div.addEventListener("click", () => doPeek(i));
     }
 
+    // Swap drawn into hand: click to swap (Option B)
     if (state.phase === "TURN_DECIDE" && isMyTurn() && myDrawnCard) {
-      // swap option: user picks which card to replace
-      cell.classList.add("clickable");
-      cell.addEventListener("click", () => doSwap(i));
+      div.classList.add("clickable");
+      div.addEventListener("click", () => doSwap(i));
     }
 
-    myGrid.appendChild(cell);
+    myGrid.appendChild(div);
   }
 
   // Opponent cards
@@ -428,12 +468,7 @@ socket.on("room:update", (s) => {
 
 // Peek result: flip that specific card for 3 seconds
 socket.on("peek:result", ({ index, card }) => {
-  // Find my grid cell at index
-  const cell = myGrid.children[index];
-  if (!cell) return;
-  const flip = cell.querySelector(".flip");
-  if (!flip) return;
-  flipForSeconds(flip, `${formatCardShort(card)} (${card.score})`, 3000);
+  revealMyCardFor3s(index, card);
 });
 
 // Draw result (private)
@@ -456,17 +491,10 @@ socket.on("turn:drawResult", ({ card, power }) => {
 // Power reveal: flip chosen card for 3 seconds (PRIVATE)
 socket.on("power:reveal", ({ kind, index, card }) => {
   if (kind === "own") {
-    const cell = myGrid.children[index];
-    if (!cell) return;
-    const flip = cell.querySelector(".flip");
-    if (!flip) return;
-    flipForSeconds(flip, `${formatCardShort(card)} (${card.score})`, 3000);
+    revealMyCardFor3s(index, card);
   } else {
-    const cell = oppGrid.children[index];
-    if (!cell) return;
-    const flip = cell.querySelector(".flip");
-    if (!flip) return;
-    flipForSeconds(flip, `${formatCardShort(card)} (${card.score})`, 3000);
+    // For opponent peek, keep popup (or we can implement flip later)
+    flashPeek(`Peeked opponent #${index + 1}: ${formatCard(card)}`);
   }
 });
 
