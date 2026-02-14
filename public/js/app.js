@@ -933,3 +933,4 @@ socket.on("val:unlocked", () => {
   valScreen.style.display = "block";
   applyValState(state?.valState || { noClicks: 0, accepted: false });
 });
+}
