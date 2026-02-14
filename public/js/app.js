@@ -954,12 +954,12 @@ function applyValState(valState) {
   // progressively annoy her into YES 😄
   const noTexts = [
     "No",
-    "Come on…",
-    "Please 😭",
-    "For real?",
-    "Okay stop 😤",
-    "I’m getting shy now…",
-    "Fine. Only Yes exists."
+    "Come on bebo…",
+    "Abey natak mat kar",
+    "Please love me...",
+    "Itni asani se chodunga nhi..",
+    "No dabake ke dikha aur ek baar..",
+    "Hahaa.. meri bunty"
   ];
   const t = noTexts[Math.min(n, noTexts.length - 1)];
   noBtn.textContent = t;
