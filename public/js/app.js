@@ -272,78 +272,76 @@ function renderHands() {
   if (!my || !opp) return;
 
   // MY HAND
-  for (let i = 0; i < my.handCount; i++) {
-    const endedCard = state.phase === "ENDED" ? my.hand[i] : null;
+for (let i = 0; i < my.handCount; i++) {
+  const endedCard = state.phase === "ENDED" ? my.hand[i] : null;
 
-    const isRevealedNow =
-      (state.phase !== "ENDED") && tempReveal.my.has(i);
+  const isRevealedNow = (state.phase !== "ENDED") && tempReveal.my.has(i);
+  const shownCard = tempReveal.my.get(i) || endedCard;
 
-    const shownCard = tempReveal.my.get(i) || endedCard;
+  // ✅ only compute card text if it’s actually visible
+  const cardText = (shownCard)
+    ? `${shownCard.r}${suitSym(shownCard.s)}`
+    : "";
 
-    const label = (state.phase === "ENDED")
-      ? `${shownCard.r}${suitSym(shownCard.s)} (score ${shownCard.score})`
-      : isRevealedNow
-        ? `${shownCard.r}${suitSym(shownCard.s)}`
-        : "🂠";
+  const div = document.createElement("div");
+  div.className = "cardCell" + (isRevealedNow ? " revealed" : "");
 
-    const div = document.createElement("div");
-    div.className = "cardCell" + (isRevealedNow ? " revealed" : "");
-
-    div.innerHTML = `
-      <div class="flipCard">
-        <div class="flipInner ${isRevealedNow ? "flipped" : ""}">
-          <div class="face backFace"><div class="big">🂠</div></div>
-          <div class="face frontFace"><div class="big">${label}</div></div>
+  div.innerHTML = `
+    <div class="flipCard">
+      <div class="flipInner">
+        <div class="face backFace">
+          <div class="big">🂠</div>
+        </div>
+        <div class="face frontFace">
+          <div class="big">${(isRevealedNow || state.phase === "ENDED") ? cardText : ""}</div>
         </div>
       </div>
-      <div class="mini">#${i+1}</div>
-    `;
+    </div>
+    <div class="mini">#${i + 1}</div>
+  `;
 
-    if (state.phase === "PEEK" && my.peeksLeft > 0) {
-      div.classList.add("clickable");
-      div.addEventListener("click", () => doPeek(i));
-    }
-
-    if (state.phase === "TURN_DECIDE" && isMyTurn() && myDrawnCard) {
-      div.classList.add("clickable");
-      div.addEventListener("click", () => doSwap(i));
-    }
-
-    myGrid.appendChild(div);
+  if (state.phase === "PEEK" && my.peeksLeft > 0) {
+    div.classList.add("clickable");
+    div.addEventListener("click", () => doPeek(i));
   }
 
-  // OPP HAND
-  for (let i = 0; i < opp.handCount; i++) {
-    const endedCard = state.phase === "ENDED" ? opp.hand[i] : null;
+  if (state.phase === "TURN_DECIDE" && isMyTurn() && myDrawnCard) {
+    div.classList.add("clickable");
+    div.addEventListener("click", () => doSwap(i));
+  }
 
-    const isRevealedOppNow =
-      (state.phase !== "ENDED") && tempReveal.opp.has(i);
+  myGrid.appendChild(div);
+}
+ 
+// OPP HAND
+for (let i = 0; i < opp.handCount; i++) {
+  const endedCard = state.phase === "ENDED" ? opp.hand[i] : null;
 
-    const shownOpp = tempReveal.opp.get(i) || endedCard;
+  const isRevealedOppNow = (state.phase !== "ENDED") && tempReveal.opp.has(i);
+  const shownOpp = tempReveal.opp.get(i) || endedCard;
 
-    const label = (state.phase === "ENDED")
-      ? `${shownOpp.r}${suitSym(shownOpp.s)} (score ${shownOpp.score})`
-      : isRevealedOppNow
-        ? `${shownOpp.r}${suitSym(shownOpp.s)}`
-        : "🂠";
+  const cardText = (shownOpp)
+    ? `${shownOpp.r}${suitSym(shownOpp.s)}`
+    : "";
 
-    const div = document.createElement("div");
-    div.className = "cardCell" + (isRevealedOppNow ? " revealed" : "");
+  const div = document.createElement("div");
+  div.className = "cardCell" + (isRevealedOppNow ? " revealed" : "");
 
-    div.innerHTML = `
-      <div class="flipCard">
-        <div class="flipInner ${isRevealedOppNow ? "flipped" : ""}">
-          <div class="face backFace"><div class="big">🂠</div></div>
-          <div class="face frontFace"><div class="big">${label}</div></div>
+  div.innerHTML = `
+    <div class="flipCard">
+      <div class="flipInner">
+        <div class="face backFace">
+          <div class="big">🂠</div>
+        </div>
+        <div class="face frontFace">
+          <div class="big">${(isRevealedOppNow || state.phase === "ENDED") ? cardText : ""}</div>
         </div>
       </div>
-      <div class="mini">#${i+1}</div>
-    `;
+    </div>
+    <div class="mini">#${i + 1}</div>
+  `;
 
-    oppGrid.appendChild(div);
-  }
-
-  oppTitle.textContent = `Opponent: ${opp.name}`;
+  oppGrid.appendChild(div);
 }
 
 // =====================
