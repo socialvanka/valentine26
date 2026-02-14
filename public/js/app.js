@@ -215,13 +215,20 @@ function ensurePowerUI() {
   useBtn.textContent = "Use Power";
   powerBar.appendChild(useBtn);
 
-  const playCenterBtn = document.createElement("button");
-  playCenterBtn.id = "playCenterBtn";
-  playCenterBtn.textContent = "Play to center";
-  powerBar.appendChild(playCenterBtn);
+  const discardBtn2 = document.createElement("button");
+  discardBtn2.id = "discardPowerBtn";
+  discardBtn2.textContent = "Discard drawn";
+  powerBar.appendChild(discardBtn2);
 
+  const skipBtn = document.createElement("button");
+  skipBtn.id = "skipPowerBtn";
+  skipBtn.textContent = "Skip power";
+  powerBar.appendChild(skipBtn);
+
+  // Insert after actionHint
   actionHint.parentElement.appendChild(powerBar);
 
+  // Modal container
   modal = document.createElement("div");
   modal.style.position = "fixed";
   modal.style.inset = "0";
@@ -231,10 +238,10 @@ function ensurePowerUI() {
   modal.style.zIndex = "9999";
 
   const box = document.createElement("div");
-  box.style.width = "min(560px, 92vw)";
+  box.style.width = "min(520px, 92vw)";
   box.style.borderRadius = "18px";
   box.style.padding = "16px";
-  box.style.background = "rgba(255,255,255,.94)";
+  box.style.background = "rgba(255,255,255,.92)";
   box.style.boxShadow = "0 18px 60px rgba(0,0,0,.18)";
   box.style.textAlign = "center";
   box.id = "modalBox";
@@ -242,9 +249,18 @@ function ensurePowerUI() {
   modal.appendChild(box);
   document.body.appendChild(modal);
 
+  // Default actions (drawn-card mode)
   useBtn.addEventListener("click", runPowerFlow);
-  playCenterBtn.addEventListener("click", doDiscardDrawn);
+  discardBtn2.addEventListener("click", doDiscardDrawn);
+
+  // Skip button will be wired dynamically based on mode (drawn vs center power)
+  skipBtn.addEventListener("click", () => {
+    // default: just close modal/power UI
+    clearDrawnUI();
+    closeModal();
+  });
 }
+
 
 function showModal(html) {
   ensurePowerUI();
@@ -824,7 +840,13 @@ socket.on("room:update", (s) => {
       const lines = s.ended.scores.map(x => `${x.name}: ${x.score}`).join(" | ");
       setStatus(`Winner: ${s.ended.winnerName} — ${lines}`);
     }
-  }
+  } else if (s.phase === "CENTER_POWER") {
+  turnHint.textContent = myTurn
+    ? "Center power: use it now or skip."
+    : "Opponent is using a center power.";
+  // ✅ Do NOT clearDrawnUI() here if it's my turn,
+  // because that's exactly when we want the power bar visible.
+}
 
   // enable controls
   drawBtn.disabled = !(myTurn && (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN"));
@@ -1015,9 +1037,9 @@ socket.on("val:unlocked", () => {
 });
 
 socket.on("center:powerAvailable", ({ card }) => {
-  // This is a power card that is ALREADY on center pile
   ensurePowerUI();
-  myDrawnCard = card;          // reuse UI, but it's "center power"
+
+  myDrawnCard = card;          // reuse the same variable
   myDrawnIsPower = true;
 
   actionHint.textContent = `Center power: ${formatCard(card)}. Use power now or skip.`;
@@ -1025,14 +1047,22 @@ socket.on("center:powerAvailable", ({ card }) => {
   const title = document.getElementById("drawnTitle");
   title.textContent = `CENTER POWER: ${formatCard(card)} — Use Power or Skip`;
 
-  document.getElementById("usePowerBtn").disabled = false;
+  const useBtn = document.getElementById("usePowerBtn");
+  const discardBtn2 = document.getElementById("discardPowerBtn");
+  const skipBtn = document.getElementById("skipPowerBtn");
 
-  // Replace "Play to center" button behavior in this mode:
-  const playBtn = document.getElementById("playCenterBtn");
-  playBtn.textContent = "Skip power";
-  playBtn.onclick = () => {
+  // In center-power mode:
+  // - "Discard drawn" doesn't apply (card is already in center), so hide it
+  discardBtn2.style.display = "none";
+
+  // Use power is allowed
+  useBtn.disabled = false;
+
+  // Skip should actually end center-power and pass the turn
+  skipBtn.textContent = "Skip power";
+  skipBtn.onclick = () => {
     socket.emit("centerPower:skip", { roomId: currentRoomId }, (res) => {
-      if (!res?.ok) setStatus(res?.error || "Skip failed");
+      if (!res?.ok) return setStatus(res?.error || "Skip failed");
       clearDrawnUI();
       closeModal();
     });
