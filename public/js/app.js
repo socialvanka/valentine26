@@ -1,7 +1,7 @@
 // =====================
 // CONFIG
 // =====================
-const SERVER_URL = "https://kabo-server-1.onrender.com"; // <-- replace with your Render server URL
+const SERVER_URL = "https://kabo-server-1.onrender.com"; // <-- your Render server URL
 
 // =====================
 // Socket
@@ -40,7 +40,7 @@ const discardDrawnBtn = document.getElementById("discardDrawnBtn");
 const caboBtn = document.getElementById("caboBtn");
 
 const drawMeta = document.getElementById("drawMeta");
-const centerMeta = document.getElementById("centerMeta");
+const centerMeta = document.getElementById("centerMeta"); // ✅ use this (not discardMeta)
 const actionHint = document.getElementById("actionHint");
 
 const logEl = document.getElementById("log");
@@ -72,7 +72,7 @@ const audioStatus = document.getElementById("audioStatus");
 let currentRoomId = null;
 let state = null;
 
-// Private turn state
+// "active power card" (either drawn OR center-power)
 let myDrawnCard = null;
 let myDrawnIsPower = false;
 
@@ -82,25 +82,9 @@ let modal = null;
 // Temporary reveal state for flip
 const tempReveal = { my: new Map(), opp: new Map() };
 
-function revealMyCardFor3s(index, card) {
-  tempReveal.my.set(index, card);
-  renderHands();
-  setTimeout(() => {
-    tempReveal.my.delete(index);
-    renderHands();
-  }, 3000);
-}
-
-function revealOppCardFor3s(index, card) {
-  tempReveal.opp.set(index, card);
-  renderHands();
-  setTimeout(() => {
-    tempReveal.opp.delete(index);
-    renderHands();
-  }, 3000);
-}
-
-// query param auto-join
+// =====================
+// Auto-join from URL
+// =====================
 const params = new URLSearchParams(location.search);
 const roomFromUrl = params.get("room");
 if (roomFromUrl) roomInput.value = roomFromUrl.toUpperCase();
@@ -116,7 +100,7 @@ function isMyTurn() { return state?.turnSocketId === socket.id; }
 
 function renderLog(lines) {
   logEl.innerHTML = "";
-  lines.forEach(l => {
+  (lines || []).forEach(l => {
     const div = document.createElement("div");
     div.textContent = "• " + l;
     logEl.appendChild(div);
@@ -141,56 +125,27 @@ function formatCard(c) {
   return `${c.r}${suitSym(c.s)}`;
 }
 
-function flashPeek(text) {
-  const el = document.createElement("div");
-  el.style.position = "fixed";
-  el.style.left = "50%";
-  el.style.top = "18px";
-  el.style.transform = "translateX(-50%)";
-  el.style.padding = "12px 14px";
-  el.style.borderRadius = "14px";
-  el.style.background = "rgba(255,255,255,.92)";
-  el.style.boxShadow = "0 14px 40px rgba(0,0,0,.18)";
-  el.style.zIndex = "99999";
-  el.style.fontWeight = "750";
-  el.style.maxWidth = "min(520px, 92vw)";
-  el.style.textAlign = "center";
-  el.textContent = text;
-
-  document.body.appendChild(el);
-
+// ===== 3s flip reveal =====
+function revealMyCardFor3s(index, card) {
+  tempReveal.my.set(index, card);
+  renderHands();
   setTimeout(() => {
-    el.style.transition = "opacity 250ms ease, transform 250ms ease";
-    el.style.opacity = "0";
-    el.style.transform = "translateX(-50%) translateY(-6px)";
-  }, 950);
-
-  setTimeout(() => el.remove(), 1250);
+    tempReveal.my.delete(index);
+    renderHands();
+  }, 3000);
 }
 
-function clearDrawnUI() {
-  myDrawnCard = null;
-  myDrawnIsPower = false;
-  if (powerBar) powerBar.style.display = "none";
-}
-
-function setDrawnUI(card, power) {
-  ensurePowerUI();
-  myDrawnCard = card;
-  myDrawnIsPower = !!power;
-
-  const title = document.getElementById("drawnTitle");
-  title.textContent = power
-    ? `You drew ${formatCard(card)} — Power available. Choose: swap OR use power OR play to center.`
-    : `You drew ${formatCard(card)} — Choose: swap OR play to center.`;
-
-  document.getElementById("usePowerBtn").disabled = !power;
-  powerBar.style.display = "flex";
-  actionHint.textContent = `You drew: ${formatCard(card)}. Tap one of your cards to swap OR play to center OR use power.`;
+function revealOppCardFor3s(index, card) {
+  tempReveal.opp.set(index, card);
+  renderHands();
+  setTimeout(() => {
+    tempReveal.opp.delete(index);
+    renderHands();
+  }, 3000);
 }
 
 // =====================
-// Modal / Power UI
+// Power UI / Modal
 // =====================
 function ensurePowerUI() {
   if (powerBar) return;
@@ -217,7 +172,7 @@ function ensurePowerUI() {
 
   const discardBtn2 = document.createElement("button");
   discardBtn2.id = "discardPowerBtn";
-  discardBtn2.textContent = "Discard drawn";
+  discardBtn2.textContent = "Play to center";
   powerBar.appendChild(discardBtn2);
 
   const skipBtn = document.createElement("button");
@@ -225,10 +180,10 @@ function ensurePowerUI() {
   skipBtn.textContent = "Skip power";
   powerBar.appendChild(skipBtn);
 
-  // Insert into board so it always exists visually
+  // Put it on the board so it always exists
   board.appendChild(powerBar);
 
-  // Modal container
+  // Modal overlay
   modal = document.createElement("div");
   modal.style.position = "fixed";
   modal.style.inset = "0";
@@ -249,18 +204,16 @@ function ensurePowerUI() {
   modal.appendChild(box);
   document.body.appendChild(modal);
 
-  // Default actions (drawn-card mode)
+  // Default wiring (drawn-card mode)
   useBtn.addEventListener("click", runPowerFlow);
   discardBtn2.addEventListener("click", doDiscardDrawn);
 
-  // Skip button will be wired dynamically based on mode (drawn vs center power)
+  // Default skip just hides UI (center-power will override onclick)
   skipBtn.addEventListener("click", () => {
-    // default: just close modal/power UI
     clearDrawnUI();
     closeModal();
   });
 }
-
 
 function showModal(html) {
   ensurePowerUI();
@@ -272,8 +225,43 @@ function closeModal() {
   if (modal) modal.style.display = "none";
 }
 
+function clearDrawnUI() {
+  myDrawnCard = null;
+  myDrawnIsPower = false;
+  if (powerBar) powerBar.style.display = "none";
+}
+
+function setDrawnUI(card, power) {
+  ensurePowerUI();
+
+  // reset button visibility each time
+  const title = document.getElementById("drawnTitle");
+  const useBtn = document.getElementById("usePowerBtn");
+  const discardBtn2 = document.getElementById("discardPowerBtn");
+  const skipBtn = document.getElementById("skipPowerBtn");
+
+  discardBtn2.style.display = "inline-block";
+  skipBtn.style.display = "none"; // skip not used for drawn-card mode
+
+  myDrawnCard = card;
+  myDrawnIsPower = !!power;
+
+  title.textContent = power
+    ? `You drew ${formatCard(card)} — Power available. Swap OR use power OR play to center.`
+    : `You drew ${formatCard(card)} — Swap OR play to center.`;
+
+  useBtn.disabled = !power;
+
+  powerBar.style.display = "flex";
+  powerBar.style.opacity = "1";
+  powerBar.style.pointerEvents = "auto";
+  powerBar.style.visibility = "visible";
+
+  actionHint.textContent = `You drew: ${formatCard(card)}. Tap your card to swap OR play to center OR use power.`;
+}
+
 // =====================
-// Render dynamic hands (flip peeks for 3s)
+// Render hands (flip peeks for 3s)
 // =====================
 function renderHands() {
   myGrid.innerHTML = "";
@@ -303,13 +291,9 @@ function renderHands() {
 
     div.innerHTML = `
       <div class="flipCard">
-        <div class="flipInner">
-          <div class="face backFace">
-            <div class="big">🂠</div>
-          </div>
-          <div class="face frontFace">
-            <div class="big">${label}</div>
-          </div>
+        <div class="flipInner ${isRevealedNow ? "flipped" : ""}">
+          <div class="face backFace"><div class="big">🂠</div></div>
+          <div class="face frontFace"><div class="big">${label}</div></div>
         </div>
       </div>
       <div class="mini">#${i+1}</div>
@@ -328,7 +312,7 @@ function renderHands() {
     myGrid.appendChild(div);
   }
 
-  // OPP HAND (optional: allow temporary reveal on your screen for power peek)
+  // OPP HAND
   for (let i = 0; i < opp.handCount; i++) {
     const endedCard = state.phase === "ENDED" ? opp.hand[i] : null;
 
@@ -348,13 +332,9 @@ function renderHands() {
 
     div.innerHTML = `
       <div class="flipCard">
-        <div class="flipInner">
-          <div class="face backFace">
-            <div class="big">🂠</div>
-          </div>
-          <div class="face frontFace">
-            <div class="big">${label}</div>
-          </div>
+        <div class="flipInner ${isRevealedOppNow ? "flipped" : ""}">
+          <div class="face backFace"><div class="big">🂠</div></div>
+          <div class="face frontFace"><div class="big">${label}</div></div>
         </div>
       </div>
       <div class="mini">#${i+1}</div>
@@ -382,6 +362,7 @@ function doTakeDraw() {
   });
 }
 
+// "Play to center" (server event name: turn:discardDrawn)
 function doDiscardDrawn() {
   socket.emit("turn:discardDrawn", { roomId: currentRoomId }, (res) => {
     if (!res?.ok) return setStatus(res?.error || "Play to center failed");
@@ -414,7 +395,7 @@ function doCabo() {
 // =====================
 function openBurnModal() {
   const top = state?.discardTop;
-  if (!top) return flashPeek("Nothing to burn on yet.");
+  if (!top) return;
 
   showModal(`
     <div style="font-weight:900;margin-bottom:10px;">Burn (Top: ${formatCard(top)})</div>
@@ -458,7 +439,6 @@ function pickBurnIndex(target) {
     return;
   }
 
-  // steal-burn
   showModal(`
     <div style="font-weight:900;margin-bottom:10px;">Steal-burn OPPONENT</div>
     <div style="opacity:.85;margin-bottom:10px;">Pick opponent card (blind):</div>
@@ -509,31 +489,28 @@ function pickGiveIndex(oppIdx) {
 }
 
 // =====================
-// Power Flow
+// Power Flow (drawn OR center)
 // =====================
 function runPowerFlow() {
   if (!myDrawnCard) return;
 
-  // ✅ If we're in CENTER_POWER, emit centerPower:* events, else normal power:* events
   const isCenterPower = (state?.phase === "CENTER_POWER");
   const prefix = isCenterPower ? "centerPower:" : "power:";
-
   const r = myDrawnCard.r;
 
   // 7/8 peek own
   if (r === "7" || r === "8") {
     showModal(`
       <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Peek one of YOUR cards</div>
-      <div style="opacity:.85;margin-bottom:10px;">Pick a position (flash reveal):</div>
+      <div style="opacity:.85;margin-bottom:10px;">Pick a position:</div>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
         ${[0,1,2,3].map(i => `<button data-i="${i}">Peek #${i+1}</button>`).join("")}
       </div>
       <div style="margin-top:12px;"><button id="closeM">Cancel</button></div>
     `);
-
     document.getElementById("closeM").onclick = closeModal;
 
-    [...document.querySelectorAll("[data-i]")].forEach(btn => {
+    document.querySelectorAll("[data-i]").forEach(btn => {
       btn.onclick = () => {
         const idx = parseInt(btn.getAttribute("data-i"), 10);
         socket.emit(prefix + "peekOwn", { roomId: currentRoomId, handIndex: idx }, (res) => {
@@ -550,16 +527,15 @@ function runPowerFlow() {
   if (r === "9" || r === "10") {
     showModal(`
       <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Peek one OPPONENT card</div>
-      <div style="opacity:.85;margin-bottom:10px;">Pick a position (flash reveal):</div>
+      <div style="opacity:.85;margin-bottom:10px;">Pick a position:</div>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
         ${[0,1,2,3].map(i => `<button data-i="${i}">Peek Opp #${i+1}</button>`).join("")}
       </div>
       <div style="margin-top:12px;"><button id="closeM">Cancel</button></div>
     `);
-
     document.getElementById("closeM").onclick = closeModal;
 
-    [...document.querySelectorAll("[data-i]")].forEach(btn => {
+    document.querySelectorAll("[data-i]").forEach(btn => {
       btn.onclick = () => {
         const idx = parseInt(btn.getAttribute("data-i"), 10);
         socket.emit(prefix + "peekOpp", { roomId: currentRoomId, oppIndex: idx }, (res) => {
@@ -576,15 +552,12 @@ function runPowerFlow() {
   if (r === "J") {
     showModal(`
       <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Skip opponent's next turn</div>
-      <div style="opacity:.85;margin-bottom:12px;">(2 players: it comes back to you)</div>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
         <button id="doIt">Use Jack</button>
         <button id="cancel">Cancel</button>
       </div>
     `);
-
     document.getElementById("cancel").onclick = closeModal;
-
     document.getElementById("doIt").onclick = () => {
       socket.emit(prefix + "jackSkip", { roomId: currentRoomId }, (res) => {
         if (!res?.ok) return setStatus(res?.error || "Power failed");
@@ -599,7 +572,7 @@ function runPowerFlow() {
   if (r === "Q") {
     showModal(`
       <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Unseen swap</div>
-      <div style="opacity:.85;margin-bottom:10px;">Pick YOUR card + OPPONENT card (no reveals):</div>
+      <div style="opacity:.85;margin-bottom:10px;">Pick YOUR card + OPPONENT card:</div>
       <div style="display:grid;gap:12px;justify-content:center;">
         <div>
           <div style="opacity:.8;margin-bottom:6px;">Your card:</div>
@@ -626,15 +599,15 @@ function runPowerFlow() {
 
     document.querySelectorAll(".myPick").forEach(b => b.onclick = () => {
       myI = parseInt(b.getAttribute("data-i"), 10);
+      document.querySelectorAll(".myPick").forEach(x => x.style.outline = "none");
       b.style.outline = "2px solid rgba(124,77,255,.4)";
-      document.querySelectorAll(".myPick").forEach(x => { if (x !== b) x.style.outline = "none"; });
       confirmBtn.disabled = !(myI !== null && oppI !== null);
     });
 
     document.querySelectorAll(".oppPick").forEach(b => b.onclick = () => {
       oppI = parseInt(b.getAttribute("data-i"), 10);
+      document.querySelectorAll(".oppPick").forEach(x => x.style.outline = "none");
       b.style.outline = "2px solid rgba(255,77,109,.35)";
-      document.querySelectorAll(".oppPick").forEach(x => { if (x !== b) x.style.outline = "none"; });
       confirmBtn.disabled = !(myI !== null && oppI !== null);
     });
 
@@ -648,72 +621,14 @@ function runPowerFlow() {
     return;
   }
 
-  // King (K1) — unchanged here:
-  // Your current server uses power:kingPreview / power:kingConfirm and needs a separate CENTER version.
-  // So for now, if you try to use King while in CENTER_POWER, show a helpful message.
-  if (r === "K") {
-    if (isCenterPower) {
-      showModal(`
-        <div style="font-weight:900;margin-bottom:10px;">King Center Power not wired yet</div>
-        <div style="opacity:.85;margin-bottom:12px;">
-          You played a King to the center. To support this, we need server events:
-          <b>centerPower:kingPreview</b> and <b>centerPower:kingConfirm</b>.
-        </div>
-        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-          <button id="closeOnly">Okay</button>
-        </div>
-      `);
-      document.getElementById("closeOnly").onclick = closeModal;
-      return;
-    }
-
-    // existing normal King flow (drawn-card power)
+  // King center-power not wired unless server supports it
+  if (r === "K" && isCenterPower) {
     showModal(`
-      <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Seen swap (preview both)</div>
-      <div style="opacity:.85;margin-bottom:10px;">Pick YOUR card + OPPONENT card to preview:</div>
-      <div style="display:grid;gap:12px;justify-content:center;">
-        <div>
-          <div style="opacity:.8;margin-bottom:6px;">Your card:</div>
-          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-            ${[0,1,2,3].map(i => `<button class="myPick" data-i="${i}">#${i+1}</button>`).join("")}
-          </div>
-        </div>
-        <div>
-          <div style="opacity:.8;margin-bottom:6px;">Opponent card:</div>
-          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-            ${[0,1,2,3].map(i => `<button class="oppPick" data-i="${i}">#${i+1}</button>`).join("")}
-          </div>
-        </div>
-        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-          <button id="previewK" disabled>Preview</button>
-          <button id="cancelK">Cancel</button>
-        </div>
-      </div>
+      <div style="font-weight:900;margin-bottom:10px;">King center-power not enabled</div>
+      <div style="opacity:.85;">Server needs centerPower:kingPreview + centerPower:kingConfirm.</div>
+      <div style="margin-top:12px;"><button id="ok">Okay</button></div>
     `);
-
-    let myI = null, oppI = null;
-    const previewBtn = document.getElementById("previewK");
-    document.getElementById("cancelK").onclick = closeModal;
-
-    document.querySelectorAll(".myPick").forEach(b => b.onclick = () => {
-      myI = parseInt(b.getAttribute("data-i"), 10);
-      b.style.outline = "2px solid rgba(124,77,255,.4)";
-      document.querySelectorAll(".myPick").forEach(x => { if (x !== b) x.style.outline = "none"; });
-      previewBtn.disabled = !(myI !== null && oppI !== null);
-    });
-
-    document.querySelectorAll(".oppPick").forEach(b => b.onclick = () => {
-      oppI = parseInt(b.getAttribute("data-i"), 10);
-      b.style.outline = "2px solid rgba(255,77,109,.35)";
-      document.querySelectorAll(".oppPick").forEach(x => { if (x !== b) x.style.outline = "none"; });
-      previewBtn.disabled = !(myI !== null && oppI !== null);
-    });
-
-    previewBtn.onclick = () => {
-      socket.emit("power:kingPreview", { roomId: currentRoomId, myIndex: myI, oppIndex: oppI }, (res) => {
-        if (!res?.ok) return setStatus(res?.error || "Power failed");
-      });
-    };
+    document.getElementById("ok").onclick = closeModal;
     return;
   }
 
@@ -767,10 +682,10 @@ burnBtn.addEventListener("click", openBurnModal);
 unlockBtn?.addEventListener("click", () => {
   gameScreen.style.display = "none";
   valScreen.style.display = "block";
+  applyValState(state?.valState || { noClicks: 0, accepted: false });
 });
 
-// bypass
-bypassBtn.addEventListener("click", () => {
+bypassBtn?.addEventListener("click", () => {
   if (!currentRoomId) return;
   socket.emit("room:bypass", { roomId: currentRoomId }, (res) => {
     if (!res?.ok) setStatus(res?.error || "Bypass failed");
@@ -788,28 +703,22 @@ socket.on("room:update", (s) => {
   setBoardVisible(s.started);
   renderLog(s.log || []);
 
-  // Basic meta
   drawMeta.textContent = `Cards left: ${s.drawCount}`;
-  // You no longer allow "take discard", so just show count
-  discardMeta.textContent = `Center pile: ${s.discardCount}`;
+  centerMeta.textContent = `Center pile: ${s.discardCount || 0}`;
+
+  // If your server also sends discardTop for burn:
+  if (s.discardTop) {
+    // keep for burn UI
+  }
 
   startBtn.style.display =
     (!s.started && s.players[0]?.socketId === socket.id && s.players.length === 2)
       ? "inline-block"
       : "none";
 
-  const my = me();
-  const opp = opponent();
-
-  if (!opp) setStatus("Waiting for your partner to join…");
-  else if (!s.started) setStatus("Both players in. Host can start.");
-  else setStatus(s.phase === "PEEK" ? "Peek phase" : "Game in progress");
-
   const myTurn = isMyTurn();
 
-  // ✅ CRITICAL CLEARING RULE:
-  // - If it's NOT my turn => always clear private UI
-  // - If it IS my turn but phase is NOT TURN_DECIDE or CENTER_POWER => clear drawn UI
+  // ✅ Clear private UI ONLY when appropriate
   if (!myTurn) {
     clearDrawnUI();
     closeModal();
@@ -820,136 +729,117 @@ socket.on("room:update", (s) => {
     }
   }
 
-  // ===== Phase messaging =====
+  // Phase text
+  const myP = me();
+  const oppP = opponent();
+  if (!oppP) setStatus("Waiting for your partner to join…");
+  else if (!s.started) setStatus("Both players in. Host can start.");
+  else setStatus("Game in progress");
+
   if (s.phase === "PEEK") {
-    peekHint.textContent = my ? `Peek remaining: ${my.peeksLeft}. Tap your cards (3s flip).` : "";
+    peekHint.textContent = myP ? `Peek remaining: ${myP.peeksLeft}. Tap your cards (3s flip).` : "";
     turnHint.textContent = "Opponent is peeking too.";
     actionHint.textContent = "";
-    // keep cleared already handled above
-  }
-
-  else if (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN") {
+  } else if (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN") {
+    peekHint.textContent = "";
+    turnHint.textContent = myTurn ? "Your turn: Draw / Burn / CABO" : "Opponent's turn.";
+    actionHint.textContent = myTurn ? "CABO allowed only if total ≤ 9 (K♥/K♦ = -1)." : "";
+  } else if (s.phase === "TURN_DECIDE") {
     peekHint.textContent = "";
     turnHint.textContent = myTurn
-      ? "Your turn: Draw, or call CABO (≤ 9)."
-      : "Opponent's turn.";
-    actionHint.textContent = myTurn
-      ? "CABO allowed only if your total is ≤ 9 (K♥/K♦ count as -1)."
-      : "";
-  }
-
-  else if (s.phase === "TURN_DECIDE") {
+      ? "Decide: swap (tap your card), or play to center, or use power."
+      : "Opponent deciding…";
+  } else if (s.phase === "CENTER_POWER") {
     peekHint.textContent = "";
-    turnHint.textContent = myTurn
-      ? "Decide: swap the drawn card (tap your card), or play it to center, or use power."
-      : "Opponent deciding.";
-    // IMPORTANT: do NOT clear here
-  }
-
-  else if (s.phase === "CENTER_POWER") {
+    turnHint.textContent = myTurn ? "Center power: Use it now or Skip." : "Opponent is using center power…";
+    actionHint.textContent = myTurn ? "Use Power or Skip power." : "";
+  } else if (s.phase === "ENDED") {
     peekHint.textContent = "";
-    turnHint.textContent = myTurn
-      ? "Center power: Use it now or Skip."
-      : "Opponent is using a center power.";
-    actionHint.textContent = myTurn
-      ? "Use Power or Skip power to end your turn."
-      : "";
-    // IMPORTANT: do NOT clear here (handled above)
-  }
-
-  else if (s.phase === "ENDED") {
-    peekHint.textContent = "";
-    turnHint.textContent = "Round ended (all cards revealed).";
+    turnHint.textContent = "Round ended.";
     actionHint.textContent = "";
     endRow.style.display = "flex";
-
-    clearDrawnUI();
-    closeModal();
-
-    const ended = s.ended;
-    if (ended) {
-      const lines = ended.scores.map(x => `${x.name}: ${x.score}`).join(" | ");
-      setStatus(`Winner: ${ended.winnerName} — ${lines}`);
-    }
   }
 
-  // ===== Controls =====
+  // Buttons enabled/disabled
   drawBtn.disabled = !(myTurn && (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN"));
-
-  // You removed "take discard" rule-wise, so keep it disabled always (or hide button)
-  discardBtn.disabled = true;
-
-  // These only matter during TURN_DECIDE (drawn card) — center-power uses skipPowerBtn instead
+  burnBtn.disabled = !(s.phase !== "PEEK" && s.phase !== "ENDED"); // you can tighten this based on server rules
   discardDrawnBtn.disabled = !(myTurn && s.phase === "TURN_DECIDE" && !!myDrawnCard);
-
   caboBtn.disabled = !(myTurn && s.phase === "TURN_DRAW");
 
   renderHands();
 });
 
-// Peek -> flip card tile 3 seconds
+// Peek result => flip tile 3 seconds
 socket.on("peek:result", ({ index, card }) => {
   revealMyCardFor3s(index, card);
 });
 
-// Draw result only to current player
+// Draw result => only to current player
 socket.on("turn:drawResult", ({ card, power }) => {
   if (!isMyTurn()) return;
   setDrawnUI(card, power);
   renderHands();
 });
 
-// Power reveal -> flip for 3s
+// Power reveal => flip tile 3 seconds
 socket.on("power:reveal", ({ kind, index, card }) => {
   if (kind === "own") revealMyCardFor3s(index, card);
   else revealOppCardFor3s(index, card);
 });
 
-// King preview -> confirm swap
-socket.on("king:preview", ({ myIndex, oppIndex, myCard, oppCard }) => {
-  showModal(`
-    <div style="font-weight:900;margin-bottom:10px;">King Preview</div>
-    <div style="opacity:.92;margin-bottom:10px;">Your #${myIndex+1}: <b>${formatCard(myCard)}</b></div>
-    <div style="opacity:.92;margin-bottom:14px;">Opponent #${oppIndex+1}: <b>${formatCard(oppCard)}</b></div>
-    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-      <button id="kYes">Confirm Swap</button>
-      <button id="kNo">Cancel</button>
-    </div>
-  `);
-
-  document.getElementById("kYes").onclick = () => {
-    socket.emit("power:kingConfirm", { roomId: currentRoomId, confirm: true }, (res) => {
-      if (!res?.ok) return setStatus(res?.error || "King confirm failed");
-      clearDrawnUI();
-      closeModal();
-    });
-  };
-
-  document.getElementById("kNo").onclick = () => {
-    socket.emit("power:kingConfirm", { roomId: currentRoomId, confirm: false }, (res) => {
-      if (!res?.ok) return setStatus(res?.error || "King cancel failed");
-      clearDrawnUI();
-      closeModal();
-    });
-  };
-});
-
-// Wrong steal burn reveal
+// Burn wrong reveal (optional)
 socket.on("burn:revealWrong", ({ index, card }) => {
-  flashPeek(`Wrong steal-burn → Opponent #${index+1} was ${formatCard(card)} (info gained).`);
   revealOppCardFor3s(index, card);
 });
 
-// Valentine unlock (both)
+// ✅ Center power available => show Use Power + Skip
+socket.on("center:powerAvailable", ({ card }) => {
+  ensurePowerUI();
+
+  myDrawnCard = card;
+  myDrawnIsPower = true;
+
+  const title = document.getElementById("drawnTitle");
+  const useBtn = document.getElementById("usePowerBtn");
+  const discardBtn2 = document.getElementById("discardPowerBtn");
+  const skipBtn = document.getElementById("skipPowerBtn");
+
+  title.textContent = `CENTER POWER: ${formatCard(card)} — Use Power or Skip`;
+  actionHint.textContent = `Center power: ${formatCard(card)}. Use power now or skip.`;
+
+  // center-power mode controls
+  discardBtn2.style.display = "none";          // not applicable
+  skipBtn.style.display = "inline-block";      // ✅ show
+  useBtn.style.display = "inline-block";       // ✅ show
+  useBtn.disabled = false;
+
+  skipBtn.onclick = () => {
+    socket.emit("centerPower:skip", { roomId: currentRoomId }, (res) => {
+      if (!res?.ok) return setStatus(res?.error || "Skip failed");
+      clearDrawnUI();
+      closeModal();
+    });
+  };
+
+  powerBar.style.display = "flex";
+  powerBar.style.opacity = "1";
+  powerBar.style.pointerEvents = "auto";
+  powerBar.style.visibility = "visible";
+});
+
+// Valentine unlock => show unlock button
 socket.on("val:unlocked", () => {
   endRow.style.display = "flex";
 });
 
-//public/assets/photos =====================
+// =====================
 // Valentine UI (synced)
 // =====================
 const photos = ["assets/photo1.jpeg","assets/photo2.jpeg","assets/photo3.jpeg"];
 const audioFile = "assets/orangrez.mp3";
+
+let idx = 0;
+let autoTimer = null;
 
 function buildCarousel() {
   track.innerHTML = "";
@@ -967,20 +857,19 @@ function buildCarousel() {
   });
 }
 
-let idx = 0;
 function goTo(i) {
   idx = (i + photos.length) % photos.length;
   track.style.transform = `translateX(-${idx * 100}%)`;
   [...dots.children].forEach((d,k)=>d.classList.toggle("active", k===idx));
 }
 
-let autoTimer = null;
 function startAutoCarousel() {
   if (autoTimer) clearInterval(autoTimer);
   autoTimer = setInterval(() => goTo(idx + 1), 2600);
 }
 
 audio.src = audioFile;
+
 async function tryPlayAudio() {
   try {
     audio.volume = 0.5;
@@ -998,29 +887,24 @@ function applyValState(valState) {
   const n = valState?.noClicks || 0;
   const accepted = !!valState?.accepted;
 
-  // progressively annoy her into YES 😄
   const noTexts = [
     "No",
     "Come on bebo…",
-    "Abey natak mat kar",
-    "Please love me...",
-    "Itni asani se chodunga nhi..",
-    "No dabake ke dikha aur ek baar..",
-    "Hahaa.. meri bunty"
+    "Please? 🥺",
+    "Okay stop being cute 😭",
+    "Last chance…",
+    "Nahi chalega 😌",
+    "Fine. Only YES exists now."
   ];
+
   const t = noTexts[Math.min(n, noTexts.length - 1)];
   noBtn.textContent = t;
 
-  // grow yes button
   const scale = Math.min(1 + n * 0.12, 2.1);
   yesBtn.style.transform = `scale(${scale})`;
 
-  // eventually hide no
-  if (n >= 6) {
-    noBtn.style.display = "none";
-  } else {
-    noBtn.style.display = "inline-block";
-  }
+  if (n >= 6) noBtn.style.display = "none";
+  else noBtn.style.display = "inline-block";
 
   if (accepted) {
     subtitle.textContent = "I knew it 💜";
@@ -1034,7 +918,6 @@ function applyValState(valState) {
   }
 }
 
-// Mirror val actions live
 socket.on("val:update", ({ valState }) => {
   applyValState(valState);
 });
@@ -1042,63 +925,13 @@ socket.on("val:update", ({ valState }) => {
 yesBtn.addEventListener("click", () => {
   socket.emit("val:yes", { roomId: currentRoomId }, () => {});
 });
+
 noBtn.addEventListener("click", () => {
   socket.emit("val:no", { roomId: currentRoomId }, () => {});
 });
 
-// When unlock button pressed -> switch to val page (both can do it)
-unlockBtn.addEventListener("click", () => {
-  gameScreen.style.display = "none";
-  valScreen.style.display = "block";
-  applyValState(state?.valState || { noClicks: 0, accepted: false });
-});
-
-// If host bypass unlocks, auto-show val page too (optional behavior)
 socket.on("val:unlocked", () => {
-  // auto-switch both users to val page if you want:
   gameScreen.style.display = "none";
   valScreen.style.display = "block";
   applyValState(state?.valState || { noClicks: 0, accepted: false });
-});
-
-socket.on("center:powerAvailable", ({ card }) => {
-  console.log("[center power available]", card);
-
-  ensurePowerUI();
-
-  myDrawnCard = card;
-  myDrawnIsPower = true;
-
-  actionHint.textContent = `Center power: ${formatCard(card)}. Use power now or skip.`;
-
-  const title = document.getElementById("drawnTitle");
-  const useBtn = document.getElementById("usePowerBtn");
-  const discardBtn2 = document.getElementById("discardPowerBtn");
-  const skipBtn = document.getElementById("skipPowerBtn");
-
-  title.textContent = `CENTER POWER: ${formatCard(card)} — Use Power or Skip`;
-
-  // discard drawn doesn't apply in center-power
-  discardBtn2.style.display = "none";
-
-  // enable use power
-  useBtn.style.display = "inline-block";
-  useBtn.disabled = false;
-
-  // wire skip
-  skipBtn.style.display = "inline-block";
-  skipBtn.textContent = "Skip power";
-  skipBtn.onclick = () => {
-    socket.emit("centerPower:skip", { roomId: currentRoomId }, (res) => {
-      if (!res?.ok) return setStatus(res?.error || "Skip failed");
-      clearDrawnUI();
-      closeModal();
-    });
-  };
-
-  // ✅ force visible (avoid CSS/layout hiding)
-  powerBar.style.display = "flex";
-  powerBar.style.opacity = "1";
-  powerBar.style.pointerEvents = "auto";
-  powerBar.style.visibility = "visible";
 });
