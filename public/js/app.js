@@ -497,24 +497,30 @@ function pickGiveIndex(oppIdx) {
 // =====================
 function runPowerFlow() {
   if (!myDrawnCard) return;
+
+  // ✅ If we're in CENTER_POWER, emit centerPower:* events, else normal power:* events
+  const isCenterPower = (state?.phase === "CENTER_POWER");
+  const prefix = isCenterPower ? "centerPower:" : "power:";
+
   const r = myDrawnCard.r;
 
   // 7/8 peek own
   if (r === "7" || r === "8") {
-    const myCount = me().handCount;
     showModal(`
-      <div style="font-weight:900;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Peek one of YOUR cards</div>
-      <div style="opacity:.85;margin-bottom:10px;">Pick a position (flips for 3s):</div>
+      <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Peek one of YOUR cards</div>
+      <div style="opacity:.85;margin-bottom:10px;">Pick a position (flash reveal):</div>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-        ${range(myCount).map(i => `<button data-i="${i}">Peek #${i+1}</button>`).join("")}
+        ${[0,1,2,3].map(i => `<button data-i="${i}">Peek #${i+1}</button>`).join("")}
       </div>
       <div style="margin-top:12px;"><button id="closeM">Cancel</button></div>
     `);
+
     document.getElementById("closeM").onclick = closeModal;
-    document.querySelectorAll("[data-i]").forEach(btn => {
+
+    [...document.querySelectorAll("[data-i]")].forEach(btn => {
       btn.onclick = () => {
-        const idx = +btn.getAttribute("data-i");
-        socket.emit("power:peekOwn", { roomId: currentRoomId, handIndex: idx }, (res) => {
+        const idx = parseInt(btn.getAttribute("data-i"), 10);
+        socket.emit(prefix + "peekOwn", { roomId: currentRoomId, handIndex: idx }, (res) => {
           if (!res?.ok) return setStatus(res?.error || "Power failed");
           clearDrawnUI();
           closeModal();
@@ -526,20 +532,21 @@ function runPowerFlow() {
 
   // 9/10 peek opponent
   if (r === "9" || r === "10") {
-    const oppCount = opponent().handCount;
     showModal(`
-      <div style="font-weight:900;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Peek one OPPONENT card</div>
-      <div style="opacity:.85;margin-bottom:10px;">Pick a position (flips for 3s on your screen):</div>
+      <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Peek one OPPONENT card</div>
+      <div style="opacity:.85;margin-bottom:10px;">Pick a position (flash reveal):</div>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-        ${range(oppCount).map(i => `<button data-i="${i}">Peek Opp #${i+1}</button>`).join("")}
+        ${[0,1,2,3].map(i => `<button data-i="${i}">Peek Opp #${i+1}</button>`).join("")}
       </div>
       <div style="margin-top:12px;"><button id="closeM">Cancel</button></div>
     `);
+
     document.getElementById("closeM").onclick = closeModal;
-    document.querySelectorAll("[data-i]").forEach(btn => {
+
+    [...document.querySelectorAll("[data-i]")].forEach(btn => {
       btn.onclick = () => {
-        const idx = +btn.getAttribute("data-i");
-        socket.emit("power:peekOpp", { roomId: currentRoomId, oppIndex: idx }, (res) => {
+        const idx = parseInt(btn.getAttribute("data-i"), 10);
+        socket.emit(prefix + "peekOpp", { roomId: currentRoomId, oppIndex: idx }, (res) => {
           if (!res?.ok) return setStatus(res?.error || "Power failed");
           clearDrawnUI();
           closeModal();
@@ -552,15 +559,18 @@ function runPowerFlow() {
   // Jack skip
   if (r === "J") {
     showModal(`
-      <div style="font-weight:900;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Skip opponent's next turn</div>
+      <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Skip opponent's next turn</div>
+      <div style="opacity:.85;margin-bottom:12px;">(2 players: it comes back to you)</div>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
         <button id="doIt">Use Jack</button>
         <button id="cancel">Cancel</button>
       </div>
     `);
+
     document.getElementById("cancel").onclick = closeModal;
+
     document.getElementById("doIt").onclick = () => {
-      socket.emit("power:jackSkip", { roomId: currentRoomId }, (res) => {
+      socket.emit(prefix + "jackSkip", { roomId: currentRoomId }, (res) => {
         if (!res?.ok) return setStatus(res?.error || "Power failed");
         clearDrawnUI();
         closeModal();
@@ -571,23 +581,20 @@ function runPowerFlow() {
 
   // Queen unseen swap
   if (r === "Q") {
-    const myCount = me().handCount;
-    const oppCount = opponent().handCount;
-
     showModal(`
-      <div style="font-weight:900;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Unseen swap</div>
+      <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Unseen swap</div>
       <div style="opacity:.85;margin-bottom:10px;">Pick YOUR card + OPPONENT card (no reveals):</div>
       <div style="display:grid;gap:12px;justify-content:center;">
         <div>
           <div style="opacity:.8;margin-bottom:6px;">Your card:</div>
           <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-            ${range(myCount).map(i => `<button class="myPick" data-i="${i}">#${i+1}</button>`).join("")}
+            ${[0,1,2,3].map(i => `<button class="myPick" data-i="${i}">#${i+1}</button>`).join("")}
           </div>
         </div>
         <div>
           <div style="opacity:.8;margin-bottom:6px;">Opponent card:</div>
           <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-            ${range(oppCount).map(i => `<button class="oppPick" data-i="${i}">#${i+1}</button>`).join("")}
+            ${[0,1,2,3].map(i => `<button class="oppPick" data-i="${i}">#${i+1}</button>`).join("")}
           </div>
         </div>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
@@ -602,21 +609,21 @@ function runPowerFlow() {
     document.getElementById("cancelQ").onclick = closeModal;
 
     document.querySelectorAll(".myPick").forEach(b => b.onclick = () => {
-      myI = +b.getAttribute("data-i");
-      document.querySelectorAll(".myPick").forEach(x => x.style.outline = "none");
+      myI = parseInt(b.getAttribute("data-i"), 10);
       b.style.outline = "2px solid rgba(124,77,255,.4)";
+      document.querySelectorAll(".myPick").forEach(x => { if (x !== b) x.style.outline = "none"; });
       confirmBtn.disabled = !(myI !== null && oppI !== null);
     });
 
     document.querySelectorAll(".oppPick").forEach(b => b.onclick = () => {
-      oppI = +b.getAttribute("data-i");
-      document.querySelectorAll(".oppPick").forEach(x => x.style.outline = "none");
+      oppI = parseInt(b.getAttribute("data-i"), 10);
       b.style.outline = "2px solid rgba(255,77,109,.35)";
+      document.querySelectorAll(".oppPick").forEach(x => { if (x !== b) x.style.outline = "none"; });
       confirmBtn.disabled = !(myI !== null && oppI !== null);
     });
 
     confirmBtn.onclick = () => {
-      socket.emit("power:queenUnseenSwap", { roomId: currentRoomId, myIndex: myI, oppIndex: oppI }, (res) => {
+      socket.emit(prefix + "queenUnseenSwap", { roomId: currentRoomId, myIndex: myI, oppIndex: oppI }, (res) => {
         if (!res?.ok) return setStatus(res?.error || "Power failed");
         clearDrawnUI();
         closeModal();
@@ -625,25 +632,40 @@ function runPowerFlow() {
     return;
   }
 
-  // King seen swap
+  // King (K1) — unchanged here:
+  // Your current server uses power:kingPreview / power:kingConfirm and needs a separate CENTER version.
+  // So for now, if you try to use King while in CENTER_POWER, show a helpful message.
   if (r === "K") {
-    const myCount = me().handCount;
-    const oppCount = opponent().handCount;
+    if (isCenterPower) {
+      showModal(`
+        <div style="font-weight:900;margin-bottom:10px;">King Center Power not wired yet</div>
+        <div style="opacity:.85;margin-bottom:12px;">
+          You played a King to the center. To support this, we need server events:
+          <b>centerPower:kingPreview</b> and <b>centerPower:kingConfirm</b>.
+        </div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          <button id="closeOnly">Okay</button>
+        </div>
+      `);
+      document.getElementById("closeOnly").onclick = closeModal;
+      return;
+    }
 
+    // existing normal King flow (drawn-card power)
     showModal(`
-      <div style="font-weight:900;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Seen swap (preview both)</div>
+      <div style="font-weight:800;margin-bottom:10px;">Use ${formatCard(myDrawnCard)} → Seen swap (preview both)</div>
       <div style="opacity:.85;margin-bottom:10px;">Pick YOUR card + OPPONENT card to preview:</div>
       <div style="display:grid;gap:12px;justify-content:center;">
         <div>
           <div style="opacity:.8;margin-bottom:6px;">Your card:</div>
           <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-            ${range(myCount).map(i => `<button class="myPick" data-i="${i}">#${i+1}</button>`).join("")}
+            ${[0,1,2,3].map(i => `<button class="myPick" data-i="${i}">#${i+1}</button>`).join("")}
           </div>
         </div>
         <div>
           <div style="opacity:.8;margin-bottom:6px;">Opponent card:</div>
           <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-            ${range(oppCount).map(i => `<button class="oppPick" data-i="${i}">#${i+1}</button>`).join("")}
+            ${[0,1,2,3].map(i => `<button class="oppPick" data-i="${i}">#${i+1}</button>`).join("")}
           </div>
         </div>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
@@ -658,16 +680,16 @@ function runPowerFlow() {
     document.getElementById("cancelK").onclick = closeModal;
 
     document.querySelectorAll(".myPick").forEach(b => b.onclick = () => {
-      myI = +b.getAttribute("data-i");
-      document.querySelectorAll(".myPick").forEach(x => x.style.outline = "none");
+      myI = parseInt(b.getAttribute("data-i"), 10);
       b.style.outline = "2px solid rgba(124,77,255,.4)";
+      document.querySelectorAll(".myPick").forEach(x => { if (x !== b) x.style.outline = "none"; });
       previewBtn.disabled = !(myI !== null && oppI !== null);
     });
 
     document.querySelectorAll(".oppPick").forEach(b => b.onclick = () => {
-      oppI = +b.getAttribute("data-i");
-      document.querySelectorAll(".oppPick").forEach(x => x.style.outline = "none");
+      oppI = parseInt(b.getAttribute("data-i"), 10);
       b.style.outline = "2px solid rgba(255,77,109,.35)";
+      document.querySelectorAll(".oppPick").forEach(x => { if (x !== b) x.style.outline = "none"; });
       previewBtn.disabled = !(myI !== null && oppI !== null);
     });
 
@@ -876,7 +898,7 @@ socket.on("val:unlocked", () => {
   endRow.style.display = "flex";
 });
 
-// =====================
+//public/assets/photos =====================
 // Valentine UI (synced)
 // =====================
 const photos = ["assets/photo1.jpeg","assets/photo2.jpeg","assets/photo3.jpeg"];
@@ -990,4 +1012,31 @@ socket.on("val:unlocked", () => {
   gameScreen.style.display = "none";
   valScreen.style.display = "block";
   applyValState(state?.valState || { noClicks: 0, accepted: false });
+});
+
+socket.on("center:powerAvailable", ({ card }) => {
+  // This is a power card that is ALREADY on center pile
+  ensurePowerUI();
+  myDrawnCard = card;          // reuse UI, but it's "center power"
+  myDrawnIsPower = true;
+
+  actionHint.textContent = `Center power: ${formatCard(card)}. Use power now or skip.`;
+
+  const title = document.getElementById("drawnTitle");
+  title.textContent = `CENTER POWER: ${formatCard(card)} — Use Power or Skip`;
+
+  document.getElementById("usePowerBtn").disabled = false;
+
+  // Replace "Play to center" button behavior in this mode:
+  const playBtn = document.getElementById("playCenterBtn");
+  playBtn.textContent = "Skip power";
+  playBtn.onclick = () => {
+    socket.emit("centerPower:skip", { roomId: currentRoomId }, (res) => {
+      if (!res?.ok) setStatus(res?.error || "Skip failed");
+      clearDrawnUI();
+      closeModal();
+    });
+  };
+
+  powerBar.style.display = "flex";
 });
