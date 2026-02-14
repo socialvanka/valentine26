@@ -225,8 +225,8 @@ function ensurePowerUI() {
   skipBtn.textContent = "Skip power";
   powerBar.appendChild(skipBtn);
 
-  // Insert after actionHint
-  actionHint.parentElement.appendChild(powerBar);
+  // Insert into board so it always exists visually
+  board.appendChild(powerBar);
 
   // Modal container
   modal = document.createElement("div");
@@ -788,6 +788,16 @@ socket.on("room:update", (s) => {
   setBoardVisible(s.started);
   renderLog(s.log || []);
 
+  // Basic meta
+  drawMeta.textContent = `Cards left: ${s.drawCount}`;
+  // You no longer allow "take discard", so just show count
+  discardMeta.textContent = `Center pile: ${s.discardCount}`;
+
+  startBtn.style.display =
+    (!s.started && s.players[0]?.socketId === socket.id && s.players.length === 2)
+      ? "inline-block"
+      : "none";
+
   const my = me();
   const opp = opponent();
 
@@ -795,69 +805,84 @@ socket.on("room:update", (s) => {
   else if (!s.started) setStatus("Both players in. Host can start.");
   else setStatus(s.phase === "PEEK" ? "Peek phase" : "Game in progress");
 
-  drawMeta.textContent = `Cards left: ${s.drawCount}`;
-  centerMeta.textContent = s.discardTop ? `Top: ${formatCard(s.discardTop)}` : `Empty`;
-
-  // show start only for host when 2 players
-  startBtn.style.display = (!s.started && s.players[0]?.socketId === socket.id && s.players.length === 2)
-    ? "inline-block" : "none";
-
-  // host bypass visible once started OR even lobby (your choice)
-  bypassBtn.style.display = (s.players[0]?.socketId === socket.id && s.players.length === 2) ? "inline-block" : "none";
-
   const myTurn = isMyTurn();
 
-  // if not my turn, clear any drawn card UI
+  // ✅ CRITICAL CLEARING RULE:
+  // - If it's NOT my turn => always clear private UI
+  // - If it IS my turn but phase is NOT TURN_DECIDE or CENTER_POWER => clear drawn UI
   if (!myTurn) {
     clearDrawnUI();
     closeModal();
+  } else {
+    if (!["TURN_DECIDE", "CENTER_POWER"].includes(s.phase)) {
+      clearDrawnUI();
+      closeModal();
+    }
   }
 
+  // ===== Phase messaging =====
   if (s.phase === "PEEK") {
-    peekHint.textContent = my ? `Peek remaining: ${my.peeksLeft}. Tap your cards (flip for 3s).` : "";
+    peekHint.textContent = my ? `Peek remaining: ${my.peeksLeft}. Tap your cards (3s flip).` : "";
     turnHint.textContent = "Opponent is peeking too.";
     actionHint.textContent = "";
-    clearDrawnUI();
-  } else if (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN") {
+    // keep cleared already handled above
+  }
+
+  else if (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN") {
     peekHint.textContent = "";
     turnHint.textContent = myTurn
-      ? "Your turn: Draw OR call CABO (< 10). Burn is always allowed."
+      ? "Your turn: Draw, or call CABO (≤ 9)."
       : "Opponent's turn.";
     actionHint.textContent = myTurn
-      ? "CABO is allowed only if your total is < 10 (K♥/K♦ count as -1)."
+      ? "CABO allowed only if your total is ≤ 9 (K♥/K♦ count as -1)."
       : "";
-    clearDrawnUI();
-  } else if (s.phase === "TURN_DECIDE") {
+  }
+
+  else if (s.phase === "TURN_DECIDE") {
+    peekHint.textContent = "";
     turnHint.textContent = myTurn
-      ? "Decide: swap the drawn card (tap your card), play to center, or use power."
+      ? "Decide: swap the drawn card (tap your card), or play it to center, or use power."
       : "Opponent deciding.";
-  } else if (s.phase === "ENDED") {
+    // IMPORTANT: do NOT clear here
+  }
+
+  else if (s.phase === "CENTER_POWER") {
+    peekHint.textContent = "";
+    turnHint.textContent = myTurn
+      ? "Center power: Use it now or Skip."
+      : "Opponent is using a center power.";
+    actionHint.textContent = myTurn
+      ? "Use Power or Skip power to end your turn."
+      : "";
+    // IMPORTANT: do NOT clear here (handled above)
+  }
+
+  else if (s.phase === "ENDED") {
+    peekHint.textContent = "";
     turnHint.textContent = "Round ended (all cards revealed).";
     actionHint.textContent = "";
     endRow.style.display = "flex";
+
     clearDrawnUI();
-    if (s.ended) {
-      const lines = s.ended.scores.map(x => `${x.name}: ${x.score}`).join(" | ");
-      setStatus(`Winner: ${s.ended.winnerName} — ${lines}`);
+    closeModal();
+
+    const ended = s.ended;
+    if (ended) {
+      const lines = ended.scores.map(x => `${x.name}: ${x.score}`).join(" | ");
+      setStatus(`Winner: ${ended.winnerName} — ${lines}`);
     }
-  } else if (s.phase === "CENTER_POWER") {
-  turnHint.textContent = myTurn
-    ? "Center power: use it now or skip."
-    : "Opponent is using a center power.";
-  // ✅ Do NOT clearDrawnUI() here if it's my turn,
-  // because that's exactly when we want the power bar visible.
-}
-
-  // enable controls
-  drawBtn.disabled = !(myTurn && (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN"));
-  discardDrawnBtn.disabled = !(myTurn && s.phase === "TURN_DECIDE" && !!myDrawnCard);
-  caboBtn.disabled = !(myTurn && s.phase === "TURN_DRAW");
-  burnBtn.disabled = !s.discardTop || ["LOBBY","PEEK","ENDED"].includes(s.phase);
-
-  // show unlock if valentine unlocked (both can click)
-  if (s.valentineUnlocked) {
-    endRow.style.display = "flex";
   }
+
+  // ===== Controls =====
+  drawBtn.disabled = !(myTurn && (s.phase === "TURN_DRAW" || s.phase === "LAST_TURN"));
+
+  // You removed "take discard" rule-wise, so keep it disabled always (or hide button)
+  discardBtn.disabled = true;
+
+  // These only matter during TURN_DECIDE (drawn card) — center-power uses skipPowerBtn instead
+  discardDrawnBtn.disabled = !(myTurn && s.phase === "TURN_DECIDE" && !!myDrawnCard);
+
+  caboBtn.disabled = !(myTurn && s.phase === "TURN_DRAW");
 
   renderHands();
 });
@@ -1037,28 +1062,31 @@ socket.on("val:unlocked", () => {
 });
 
 socket.on("center:powerAvailable", ({ card }) => {
+  console.log("[center power available]", card);
+
   ensurePowerUI();
 
-  myDrawnCard = card;          // reuse the same variable
+  myDrawnCard = card;
   myDrawnIsPower = true;
 
   actionHint.textContent = `Center power: ${formatCard(card)}. Use power now or skip.`;
 
   const title = document.getElementById("drawnTitle");
-  title.textContent = `CENTER POWER: ${formatCard(card)} — Use Power or Skip`;
-
   const useBtn = document.getElementById("usePowerBtn");
   const discardBtn2 = document.getElementById("discardPowerBtn");
   const skipBtn = document.getElementById("skipPowerBtn");
 
-  // In center-power mode:
-  // - "Discard drawn" doesn't apply (card is already in center), so hide it
+  title.textContent = `CENTER POWER: ${formatCard(card)} — Use Power or Skip`;
+
+  // discard drawn doesn't apply in center-power
   discardBtn2.style.display = "none";
 
-  // Use power is allowed
+  // enable use power
+  useBtn.style.display = "inline-block";
   useBtn.disabled = false;
 
-  // Skip should actually end center-power and pass the turn
+  // wire skip
+  skipBtn.style.display = "inline-block";
   skipBtn.textContent = "Skip power";
   skipBtn.onclick = () => {
     socket.emit("centerPower:skip", { roomId: currentRoomId }, (res) => {
@@ -1068,5 +1096,9 @@ socket.on("center:powerAvailable", ({ card }) => {
     });
   };
 
+  // ✅ force visible (avoid CSS/layout hiding)
   powerBar.style.display = "flex";
+  powerBar.style.opacity = "1";
+  powerBar.style.pointerEvents = "auto";
+  powerBar.style.visibility = "visible";
 });
